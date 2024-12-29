@@ -1,0 +1,14 @@
+[tool.poetry]
+name = "execu-tools"
+version = "0.1.0"
+description = ""
+authors = ["cptspacemanspiff <19273992+cptspacemanspiff@users.noreply.github.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
