@@ -1,31 +1,99 @@
+from contextlib import contextmanager
+import torch
+
+# from transfomers
+from dataclasses import dataclass
+from transformers import PreTrainedModel
+
+from transformers import StaticCache, EncoderDecoderCache
+
+
+@contextmanager
+def patch_forward(obj: torch.nn.Module, new_method):
+    """
+    Patches the forward method of a PyTorch module, needs to patch the class not
+    just the instance b/c otherwise export will error out when trying to produce
+    items that reference self.
+    """
+    original_method = obj.__class__.forward
+    obj.__class__.forward = new_method
+    try:
+        yield
+    finally:
+        # Restore the original method
+        obj.__class__.forward = original_method
 
 
 @dataclass
-class TorchExportableEncoderDecoderConfig:
+class EncoderDecoderExportableConfig:
+    ### Setup sizes:
+    min_batch_size: int
     max_batch_size: int
+
+    min_encoder_seq_len: int
     max_encoder_seq_len: int
+
+    min_decoder_seq_len: int
     max_decoder_seq_len: int
-    dtype: torch.dtype
+
+    ### Cache setup:
+    cache_dtype: torch.dtype
+
+
+# def register_moth
+
+
+class BaseExportableModel(torch.nn.Module):
+    def __init__(self, torch_model: torch.nn.Module):
+        super().__init__()
+
+        self._registered_fn = {}
+
+    def register_function(self, func):
+        #
+        self._registered_fn = func
+
+    # def add_compile function:
+
+
+class StatefulModel(torch.nn.Module):
+    def __init__(
+        self,
+        max_batch_size: int,
+        max_seq_len: int,
+    ):
+        super().__init__()
+        self.register_buffer(
+            "cache", torch.zeros((max_batch_size, max_seq_len), dtype=torch.float32)
+        )
+
+    def set_cache(self, data: torch.Tensor):
+        # get the shape of the date:
+        data_shape = data.shape
+        # Dynamically slice based on the target shape
+        slices = tuple(slice(0, dim) for dim in data_shape)
+        self.cache[slices] = data
+
+    def get_cache(self, data: torch.Tensor):
+        # load data this does not work because the data object we are assigning to is assumed to be static sized, not dynamic.
+        # data[:data.shape[0], :data.shape[1]] = self.cache[: data.shape[0], : data.shape[1]]
+        # batch_size = batch_size
+        # seq_len = data.shape[1]
+        shape = data.shape
+        batch_sliced = self.cache.narrow(0,0, shape[0])
+        seq_sliced = batch_sliced.narrow(1,0, shape[1])
+        data[:shape[0], :shape[1]] = seq_sliced
+        # return seq_sliced
 
 
 class EncoderDecoderExportable(torch.nn.Module):
-    """
-    A wrapper module designed to make a `PreTrainedModel` exportable with `torch.export`,
-    specifically for use with static caching. This module ensures that the exported model
-    is compatible with further lowering and execution in `ExecuTorch`.
-
-    Note:
-        This class is specifically designed to support export process using `torch.export`
-        in a way that ensures the model can be further lowered and run efficiently in `ExecuTorch`.
-    """
 
     def __init__(
         self,
         model: PreTrainedModel,
-        exportable_config: TorchExportableEncoderDecoderConfig,
+        exportable_config: EncoderDecoderExportableConfig,
     ):
-        """
-        """
+
         super().__init__()
 
         # Sanity checks
@@ -42,7 +110,6 @@ class EncoderDecoderExportable(torch.nn.Module):
 
         # verify that the model supports static caching:
 
-
         self.model = model
         self.config = exportable_config
 
@@ -55,13 +122,13 @@ class EncoderDecoderExportable(torch.nn.Module):
             model.config,
             max_cache_len=self.config.max_batch_size,
             max_batch_size=self.config.max_encoder_seq_len,
-            dtype=self.config.dtype,
+            dtype=self.config.cache_dtype,
         )
         decoder_cache = StaticCache(
             model.config,
             max_cache_len=self.config.max_batch_size,
             max_batch_size=self.config.max_encoder_seq_len,
-            dtype=self.config.dtype,
+            dtype=self.config.cache_dtype,
         )
         self.static_cache = EncoderDecoderCache(decoder_cache, encoder_cache)
 
@@ -104,91 +171,22 @@ class EncoderDecoderExportable(torch.nn.Module):
 
     def forward_encoder(
         self,
-        decoder_input_ids: torch.Tensor,
-        decoder_cache_position: torch.Tensor,
-        encoder_input_ids: torch.Tensor = None,
-        encoder_attention_mask=None,
-        encoder_sequence_length: torch.Tensor = None,
+        encoder_input_ids: torch.Tensor,
+        encoder_attention_mask: torch.Tensor,
     ):
-        """
-        Forward pass of the module, which is compatible with the ExecuTorch runtime.
 
-        Args:
-            input_ids (`torch.Tensor`): Tensor representing current input token id to the module.
-            cache_position (`torch.Tensor`): Tensor representing current input position in the cache.
-
-        Returns:
-            torch.Tensor: Logits output from the model.
-
-        This forward adapter serves two primary purposes:
-
-        1. **Making the Model `torch.export`-Compatible**:
-            The adapter hides unsupported objects, such as the `Cache`, from the graph inputs and outputs,
-            enabling the model to be exportable using `torch.export` without encountering issues.
-
-        2. **Ensuring Compatibility with `ExecuTorch` runtime**:
-            The adapter matches the model's forward signature with that in `executorch/extension/llm/runner`,
-            ensuring that the exported model can be executed in `ExecuTorch` out-of-the-box.
-        """
-
-        # two paths in forward, either we update decoder input_ids and regenerate cross attention cache or we dont, and use previous generated values.
-        if encoder_input_ids is None and encoder_sequence_length is None:
-            # we need either encoder input ids or encoder sequence length to generate the encoder output.
-            raise ValueError("encoder_input_ids or encoder_sequence_length must be provided")
-
-        if encoder_input_ids is not None:
-            # generate the encoder input ids:
-            encoder = self.model.get_encoder()
-            encoder_output = encoder(
-                input_ids=encoder_input_ids, attention_mask=encoder_attention_mask
-            )
-            batch_size, seq_len, embed_dim = encoder_output.last_hidden_state.shape
-            self.encoder_seq_len.fill_(seq_len)
-            self.encoder_last_hidden_state[:batch_size, :seq_len, :] = (
-                encoder_output.last_hidden_state
-            )
-            self.encoder_attention_mask[:batch_size, :seq_len, :] = (
-                encoder_attention_mask
-            )
-            pass
-
-        curr_batch_size, seqlen = decoder_input_ids.shape
-        attn_mask = (
-            self.mask[decoder_cache_position, :seqlen] if self.is_causal else None
+        # generate the encoder input ids:
+        encoder = self.model.get_encoder()
+        encoder_output = encoder(
+            input_ids=encoder_input_ids, attention_mask=encoder_attention_mask
+        )
+        batch_size, seq_len, embed_dim = encoder_output.last_hidden_state.shape
+        self.encoder_seq_len.fill_(seq_len)
+        self.encoder_last_hidden_state[:batch_size, :seq_len, :] = (
+            encoder_output.last_hidden_state
         )
 
-        # do assertions on the size of the last hidden state:
-
-        # decoders take a base model output object
-        encoder_output = BaseModelOutput(
-            self.encoder_last_hidden_state[:curr_batch_size, : self.encoder_seq_len, :],
-            None,
-            None,
-        )
-
-        # assert that
-
-        outs = self.model(
-            decoder_input_ids=decoder_input_ids,
-            decoder_attention_mask=attn_mask,
-            cache_position=decoder_cache_position,
-            encoder_outputs=encoder_output,
-            attention_mask=encoder_attention_mask,
-            # encoder_attention_mask = self.encoder_attention_mask,
-            past_key_values=self.static_cache,
-            use_cache=True,
-        )
-        # outs = self.model(
-        #     input_ids=input_ids,
-        #     attention_mask=attn_mask,
-
-        #     cache_position=cache_position,
-        #     past_key_values=self.static_cache,
-        #     use_cache=True,
-
-        #     **kwargs,
-        # )
-        return outs.logits
+        return encoder_output.last_hidden_state
 
     def forward_decoder(
         self,
@@ -200,3 +198,4 @@ class EncoderDecoderExportable(torch.nn.Module):
         """
         Forward pass of the module, which is compatible with the ExecuTorch runtime.
         """
+        pass
