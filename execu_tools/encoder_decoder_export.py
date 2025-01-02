@@ -8,20 +8,7 @@ from transformers import PreTrainedModel
 from transformers import StaticCache, EncoderDecoderCache
 
 
-@contextmanager
-def patch_forward(obj: torch.nn.Module, new_method):
-    """
-    Patches the forward method of a PyTorch module, needs to patch the class not
-    just the instance b/c otherwise export will error out when trying to produce
-    items that reference self.
-    """
-    original_method = obj.__class__.forward
-    obj.__class__.forward = new_method
-    try:
-        yield
-    finally:
-        # Restore the original method
-        obj.__class__.forward = original_method
+
 
 
 @dataclass
@@ -38,52 +25,6 @@ class EncoderDecoderExportableConfig:
 
     ### Cache setup:
     cache_dtype: torch.dtype
-
-
-# def register_moth
-
-
-class BaseExportableModel(torch.nn.Module):
-    def __init__(self, torch_model: torch.nn.Module):
-        super().__init__()
-
-        self._registered_fn = {}
-
-    def register_function(self, func):
-        #
-        self._registered_fn = func
-
-    # def add_compile function:
-
-
-class StatefulModel(torch.nn.Module):
-    def __init__(
-        self,
-        max_batch_size: int,
-        max_seq_len: int,
-    ):
-        super().__init__()
-        self.register_buffer(
-            "cache", torch.zeros((max_batch_size, max_seq_len), dtype=torch.float32)
-        )
-
-    def set_cache(self, data: torch.Tensor):
-        # get the shape of the date:
-        data_shape = data.shape
-        # Dynamically slice based on the target shape
-        slices = tuple(slice(0, dim) for dim in data_shape)
-        self.cache[slices] = data
-
-    def get_cache(self, data: torch.Tensor):
-        # load data this does not work because the data object we are assigning to is assumed to be static sized, not dynamic.
-        # data[:data.shape[0], :data.shape[1]] = self.cache[: data.shape[0], : data.shape[1]]
-        # batch_size = batch_size
-        # seq_len = data.shape[1]
-        shape = data.shape
-        batch_sliced = self.cache.narrow(0,0, shape[0])
-        seq_sliced = batch_sliced.narrow(1,0, shape[1])
-        data[:shape[0], :shape[1]] = seq_sliced
-        # return seq_sliced
 
 
 class EncoderDecoderExportable(torch.nn.Module):

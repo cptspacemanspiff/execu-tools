@@ -5,10 +5,10 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "ecoder_decoder_export",
+            "name": "model_export",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/tests/test_encoder_decoder_export.py",
+            "program": "${workspaceFolder}/tests/test_model_export.py",
             "console": "integratedTerminal",
             "justMyCode": false
         },
