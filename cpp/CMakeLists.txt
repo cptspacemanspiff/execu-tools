@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.27)
-project(executools VERSION 0.0.1)
+project(ExecuTools VERSION 0.0.1)
 # Get shared cmake stuff:
 include(FetchContent)
 FetchContent_Declare(
@@ -36,5 +36,5 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(executorch)
 
 # cmt_add_doc_subdirectory(doc)
-# cmt_add_src_subdirectory(src)
+cmt_add_src_subdirectory(src)
 cmt_add_test_subdirectory(test)
