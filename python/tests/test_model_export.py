@@ -59,7 +59,7 @@ def test_stateful_export():
     # export to aten:
     exporter.export()
     # lower model:
-    exporter.to_edge([XnnpackPartitioner()])
+    exporter.to_edge()
     # export to executorch:
     exporter.to_executorch()
     # save model:

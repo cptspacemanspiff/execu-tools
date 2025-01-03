@@ -52,7 +52,7 @@ class Exporter:
 
     def register(self, fn, **kwargs):
         # validate that the function is a method of the module.
-        if fn.__qualname__.split('.')[0] != self.model.__class__.__name__:
+        if fn.__qualname__.split(".")[0] != self.model.__class__.__name__:
             raise ValueError(
                 f"Function {fn.__name__} is not a method of {self.model.__class__.__name__}"
             )
@@ -121,14 +121,14 @@ class Exporter:
                 "No method graphs found. Please trace (export) the model first."
             )
         if partitioners is None:
-            edge_program = to_edge(self.method_graphs)
+            edge_program: EdgeProgramManager = to_edge(self.method_graphs)
         else:
             edge_program: EdgeProgramManager = to_edge_transform_and_lower(
                 self.method_graphs,
                 partitioner=partitioners,
             )
 
-            self.edge_program = edge_program
+        self.edge_program = edge_program
 
         return edge_program
 
@@ -140,10 +140,12 @@ class Exporter:
 
     def save(self, dir: Path, name: str):
         if self.executorch_program is None:
-            raise ValueError("No executorch program found. to_executorch() must be called first.")
+            raise ValueError(
+                "No executorch program found. to_executorch() must be called first."
+            )
         # create the directory if it does not exist:
         if not dir.exists():
             dir.mkdir(parents=True)
-        path = dir/(name+".pte")
+        path = dir / (name + ".pte")
         with open(path, "wb") as f:
             f.write(self.executorch_program.buffer)
