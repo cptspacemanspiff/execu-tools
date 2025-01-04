@@ -4,7 +4,9 @@ from pathlib import Path
 import torch
 from torch.export import export, export_for_training, ExportedProgram
 from executorch.exir import to_edge, to_edge_transform_and_lower, EdgeProgramManager
-from executorch.exir import ExecutorchProgram
+from executorch.exir import ExecutorchProgram, ExecutorchBackendConfig
+from executorch.exir.passes.memory_planning_pass import MemoryPlanningPass
+from executorch.exir.memory_planning import materialize_buffer
 
 from contextlib import contextmanager
 
@@ -135,7 +137,16 @@ class Exporter:
     def to_executorch(self) -> ExecutorchProgram:
         if self.edge_program is None:
             raise ValueError("No edge program found. to_edge() must be called first.")
-        self.executorch_program = self.edge_program.to_executorch()
+
+        # create the backend config:
+        backend_config = ExecutorchBackendConfig(
+            memory_planning_pass=MemoryPlanningPass(
+                alloc_graph_input=False, alloc_graph_output=False
+            ),
+            # emit_stacktrace=True,
+        )
+
+        self.executorch_program = self.edge_program.to_executorch(config=backend_config)
         return self.executorch_program
 
     def save(self, dir: Path, name: str):

@@ -24,7 +24,7 @@ set(EXECUTORCH_BUILD_EXTENSION_RUNNER_UTIL ON)
 FetchContent_Declare(
     executorch
     GIT_REPOSITORY git@github.com:pytorch/executorch.git
-    GIT_TAG        v0.4.0
+    GIT_TAG        main
     # root of executorch must be named executorch see:
     # https://github.com/pytorch/executorch/issues/6475
     SOURCE_DIR     "${CMAKE_BINARY_DIR}/_deps/executorch" 

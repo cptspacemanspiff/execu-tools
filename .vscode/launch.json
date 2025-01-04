@@ -23,7 +23,7 @@
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "enter program name, for example ${workspaceFolder}/a.out",
+            "program": "${workspaceRoot}/cpp/build/stage/bin/ExecuToolsUnitTests",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",

@@ -32,10 +32,49 @@ void method_infos(Module &module) {
 }
 
 int main() {
-  Module module(
-      "/home/nlong/execu-tools/python/tests/export_artifacts/stateful_model.pte");
+  Module module("/home/nlong/execu-tools/python/tests/export_artifacts/"
+                "stateful_model.pte");
 
-  method_infos(module);
+  // method_infos(module);
+  const int batch_size = 1;
+  const int seq_len = 20;
+  // Wrap the input data with a Tensor.
+  float input[batch_size * seq_len];
+  auto tensor = executorch::extension::from_blob(input, {
+                                                            batch_size,
+                                                            seq_len,
+                                                        });
 
-  std::cout << "Module loaded" << std::endl;
+  std::fill(input, input + batch_size * seq_len, 1.0f);
+
+  module.load_method("set_cache");
+  module.load_method("get_cache");
+  // Run the model.
+  auto result = module.execute("set_cache", tensor);
+
+  if (result.ok()) {
+    auto outputs = executools::utils::resultToString(result);
+    std::cout << "Success: " << outputs << std::endl;
+  } else {
+    std::cout << "Error: " << executools::utils::to_string(result.error())
+              << std::endl;
+  }
+
+  float output[10 * 20];
+  std::fill(output, output + 10 * 20, 2.0f);
+  auto tensor2 = executorch::extension::from_blob(output, {
+                                                              10,
+                                                              20,
+                                                          });
+  auto result2 = module.execute("get_cache", tensor2);
+
+  if (result2.ok()) {
+    auto outputs = executools::utils::resultToString(result2);
+    std::cout << "Success: " << outputs << std::endl;
+  } else {
+    std::cout << "Error: " << executools::utils::to_string(result2.error())
+              << std::endl;
+  }
+
+  return 0;
 }

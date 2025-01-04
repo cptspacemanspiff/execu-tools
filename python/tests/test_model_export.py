@@ -3,6 +3,7 @@ import torch
 from torch.export import Dim
 from executorch.backends.xnnpack.partition.xnnpack_partitioner import XnnpackPartitioner
 from execu_tools.model_exporter import Exporter
+from executorch.runtime import Runtime, Verification, Program, Method
 
 class StatefulModel(torch.nn.Module):
     def __init__(
@@ -12,27 +13,32 @@ class StatefulModel(torch.nn.Module):
     ):
         super().__init__()
         self.register_buffer(
-            "cache", torch.zeros((max_batch_size, max_seq_len), dtype=torch.float32)
+            "cache",
+            torch.ones((max_batch_size, max_seq_len), dtype=torch.float32),
+            persistent=True,
         )
 
     def set_cache(self, data: torch.Tensor):
         # get the shape of the date:
-        data_shape = data.shape
+        # data_shape = data.shape
         # Dynamically slice based on the target shape
-        slices = tuple(slice(0, dim) for dim in data_shape)
-        self.cache[slices] = data
+        # slices = tuple(slice(0, dim) for dim in data_shape)
+        self.cache[:,:] = data
+        # return data
 
     def get_cache(self, data: torch.Tensor):
-        # Note this is fragile b/c of the data dependent-ish slicing. 
-        # we *must* use narrow, rathar than indexing. There may be otherways to 
+        # Note this is fragile b/c of the data dependent-ish slicing.
+        # we *must* use narrow, rathar than indexing. There may be otherways to
         # do this, but this did not have to futz with torch._checks.
         shape = data.shape
-        batch_sliced = self.cache.narrow(0,0, shape[0])
-        seq_sliced = batch_sliced.narrow(1,0, shape[1])
-        data[:shape[0], :shape[1]] = seq_sliced
+        batch_sliced = self.cache.narrow(0, 0, shape[0])
+        seq_sliced = batch_sliced.narrow(1, 0, shape[1])
+        data[: shape[0], : shape[1]] = seq_sliced
+
 
 def get_test_dir() -> Path:
     return Path(__file__).parent
+
 
 def test_stateful_export():
     max_batch_size = 10
@@ -48,11 +54,13 @@ def test_stateful_export():
 
     exporter.register(
         model.set_cache,
-        data=(torch.ones(3,3), {0: batch_size, 1: seq_len}),
+        # data=(torch.ones(2, 2),{0: batch_size, 1: seq_len}),
+        data=(torch.ones(max_batch_size, max_seq_len))
     )
     exporter.register(
         model.get_cache,
-        data=(torch.ones(2, 2), {0: batch_size, 1: seq_len}),
+        # data=(torch.ones(2, 2), {0: batch_size, 1: seq_len}),
+        data=(torch.ones(max_batch_size, max_seq_len))
     )
     # quantize model:
     # exporter.quantize()
@@ -63,9 +71,43 @@ def test_stateful_export():
     # export to executorch:
     exporter.to_executorch()
     # save model:
-    output_dir = get_test_dir()/'export_artifacts'
+    output_dir = get_test_dir() / "export_artifacts"
 
-    exporter.save(output_dir,"stateful_model")
+    exporter.save(output_dir, "stateful_model")
+
+
+# from pathlib import Path
+
+# import torch
+
+
+# et_runtime: Runtime = Runtime.get()
+# program: Program = et_runtime.load_program(
+#     Path("/tmp/program.pte"),
+#     verification=Verification.Minimal,
+# )
+# print("Program methods:", program.method_names)
+# forward: Method = program.load_method("forward")
+
+# inputs = (torch.ones(2, 2), torch.ones(2, 2))
+# outputs = forward.execute(inputs)
+# print(f"Ran forward({inputs})")
+# print(f"  outputs: {outputs}")
+
+def test_stateful_export_load():
+    output_dir = get_test_dir() / "export_artifacts"
+    et_runtime: Runtime = Runtime.get()
+    program: Program = et_runtime.load_program(
+        Path(output_dir / "stateful_model.pte"),
+        verification=Verification.Minimal,
+    )
+    print("Program methods:", program.method_names)
+    set_cache = program.load_method('set_cache')
+    print("set_cache loaded")
+    get_cache = program.load_method('get_cache')
+    print("get_cache loaded")
+
 
 if __name__ == "__main__":
     test_stateful_export()
+    test_stateful_export_load()
