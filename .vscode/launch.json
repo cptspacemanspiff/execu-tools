@@ -8,7 +8,7 @@
             "name": "model_export",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/tests/test_model_export.py",
+            "program": "${workspaceFolder}/python/tests/test_model_export.py",
             "console": "integratedTerminal",
             "justMyCode": false
         },

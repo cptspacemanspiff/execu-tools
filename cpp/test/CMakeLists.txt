@@ -5,4 +5,5 @@ target_link_libraries(${CMT_LAST_TARGET} PRIVATE
     extension_data_loader
     extension_module_static
     extension_tensor
+    ExecuTools::ExecuToolsUtils
     )
