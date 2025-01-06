@@ -6,6 +6,8 @@
 
 #include <iostream>
 
+#include "ExecuToolsTestDirs.h"
+
 using executorch::extension::Module;
 
 void method_infos(Module &module) {
@@ -32,8 +34,7 @@ void method_infos(Module &module) {
 }
 
 int main() {
-  Module module("/home/nlong/execu-tools/python/tests/export_artifacts/"
-                "stateful_model.pte");
+  Module module(EXECUTOOLS_PYTHON_ARTIFACT_DIR "/stateful_model.pte");
 
   // method_infos(module);
   const int batch_size = 1;

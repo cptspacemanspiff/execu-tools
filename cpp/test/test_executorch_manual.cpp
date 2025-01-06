@@ -9,6 +9,9 @@
 #include <iostream>
 #include <memory>
 #include <span>
+
+#include "ExecuToolsTestDirs.h"
+
 int main() {
   // create a new executorch program.
   using executorch::aten::ScalarType;
@@ -27,8 +30,7 @@ int main() {
   using executorch::runtime::Span;
 
   Result<FileDataLoader> loader =
-      FileDataLoader::from("/home/nlong/execu-tools/python/tests/"
-                           "export_artifacts/stateful_model.pte");
+      FileDataLoader::from(EXECUTOOLS_PYTHON_ARTIFACT_DIR "/stateful_model.pte");
   assert(loader.ok());
 
   Result<Program> program = Program::load(&loader.get());
