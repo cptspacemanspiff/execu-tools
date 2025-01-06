@@ -38,7 +38,7 @@ int main() {
   // Method names map back to Python nn.Module method names. Most users will
   // only
   // have the singular method "forward".
-  const char *method_name = "set_cache";
+  const char *method_name = "get_cache";
 
   // MethodMeta is a lightweight structure that lets us gather metadata
   // information about a specific method. In this case we are looking to get the
@@ -50,7 +50,7 @@ int main() {
   std::vector<Span<uint8_t>> planned_arenas; // Passed to the allocator
 
   size_t num_memory_planned_buffers = method_meta->num_memory_planned_buffers();
-
+  std::cout << "num_memory_planned_buffers: " << num_memory_planned_buffers << std::endl;
   // It is possible to have multiple layers in our memory hierarchy; for
   // example, SRAM and DRAM.
   for (size_t id = 0; id < num_memory_planned_buffers; ++id) {
