@@ -20,6 +20,7 @@ cmt_target_headers(
   ${CMAKE_CURRENT_BINARY_DIR}/ExecuToolsTestDirs.h)
 
 cmt_add_executable(Manual NAMESPACED test_executorch_manual.cpp)
+
 target_link_libraries(
   ${CMT_LAST_TARGET}
   PRIVATE executorch
@@ -28,8 +29,11 @@ target_link_libraries(
           extension_data_loader
           extension_module_static
           extension_tensor
-          ExecuTools::ExecuToolsUtils)
+          ExecuTools::ExecuToolsUtils
+          etdump)
 
 cmt_target_headers(
   ${CMT_LAST_TARGET} PRIVATE BASE_DIRS ${CMAKE_CURRENT_BINARY_DIR} FILES
   ${CMAKE_CURRENT_BINARY_DIR}/ExecuToolsTestDirs.h)
+
+# target_compile_options(${CMT_LAST_TARGET} INTERFACE -DET_EVENT_TRACER_ENABLED)

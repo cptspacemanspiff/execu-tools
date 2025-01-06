@@ -15,11 +15,14 @@ set(CMAKE_CXX_STANDARD 20)
 
 cmt_project_setup()
 
+add_compile_definitions(ET_EVENT_TRACER_ENABLED=1)
+
 # args for executorch (not best place for this):
 set(EXECUTORCH_BUILD_EXTENSION_MODULE ON )
 set(EXECUTORCH_BUILD_EXTENSION_TENSOR ON )
 set(EXECUTORCH_BUILD_EXTENSION_DATA_LOADER ON)
 set(EXECUTORCH_BUILD_EXTENSION_RUNNER_UTIL ON)
+set(EXECUTORCH_BUILD_DEVTOOLS ON)
 
 FetchContent_Declare(
     executorch
@@ -32,7 +35,6 @@ FetchContent_Declare(
     OVERRIDE_FIND_PACKAGE 
     SYSTEM
 )
-
 FetchContent_MakeAvailable(executorch)
 
 # cmt_add_doc_subdirectory(doc)
