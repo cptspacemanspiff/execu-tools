@@ -34,10 +34,8 @@ class StatefulModel(torch.nn.Module):
         # Note this is fragile b/c of the data dependent-ish slicing.
         # we *must* use narrow, rathar than indexing. There may be otherways to
         # do this, but this did not have to futz with torch._checks.
-        shape = data.shape
-        batch_sliced = self.cache.narrow(0, 0, shape[0])
-        seq_sliced = batch_sliced.narrow(1, 0, shape[1])
-        data[: shape[0], : shape[1]] = seq_sliced
+
+        data.copy_(self.cache)
 
 
 def get_test_dir() -> Path:
@@ -50,22 +48,32 @@ def test_stateful_export():
 
     model = StatefulModel(max_batch_size=max_batch_size, max_seq_len=max_seq_len)
 
+    model.set_cache(torch.ones(max_batch_size, max_seq_len))
+
+    tensor = torch.ones(max_batch_size, max_seq_len)+20
+
+    print(model.get_cache(tensor))
+
+
     exporter = Exporter(model)
+
+    # register the buffer:
+    exporter.register_shared_buffer("cache")
 
     # register the methods:
     batch_size = Dim("batch_size_dim", min=1, max=max_batch_size)
     seq_len = Dim("seq_len_dim", min=1, max=max_seq_len)
 
+    # exporter.register(
+    #     model.set_cache,
+    #     # data=(torch.ones(2, 2),{0: batch_size, 1: seq_len}),
+    #     data=(torch.ones(max_batch_size, max_seq_len)),
+    # )
     exporter.register(
-        model.set_cache,
-        # data=(torch.ones(2, 2),{0: batch_size, 1: seq_len}),
+        model.get_cache,
+        # data=(torch.ones(2, 2), {0: batch_size, 1: seq_len}),
         data=(torch.ones(max_batch_size, max_seq_len)),
     )
-    # exporter.register(
-    #     model.get_cache,
-    #     # data=(torch.ones(2, 2), {0: batch_size, 1: seq_len}),
-    #     data=(torch.ones(max_batch_size, max_seq_len))
-    # )
     # quantize model:
     # exporter.quantize()
     # export to aten:
@@ -115,4 +123,4 @@ def test_stateful_export_load():
 
 if __name__ == "__main__":
     test_stateful_export()
-    test_stateful_export_load()
+    # test_stateful_export_load()

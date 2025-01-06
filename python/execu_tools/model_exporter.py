@@ -1,7 +1,7 @@
 # file that helps generate the exporter
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 import torch
 from torch.export import (
     export,
@@ -21,6 +21,8 @@ import inspect
 
 from executorch.exir.dynamic_shape import DynamicMemoryPlanningMode
 
+from executorch.exir.tensor import ALIGNMENT
+
 
 @contextmanager
 def patch_forward(obj: torch.nn.Module, new_method):
@@ -37,8 +39,27 @@ def patch_forward(obj: torch.nn.Module, new_method):
         # Restore the original method
         obj.__class__.forward = original_method
 
+def _is_buffer(
+    node: torch.fx.Node, graph_signature: Optional[ExportGraphSignature] = None
+) -> bool:
+    """
+    Check if the node is a buffer according to the provided graph signature.
+    """
+    if node.op == "placeholder":
+        if isinstance(node.target, str):
+            if node.target in graph_signature.inputs_to_buffers:
+                return True
+    return False
 
 class SharedMemoryPlanningPass(MemoryPlanningPass):
+    def __init__(
+        self,
+        shared_buffers: set[str] = set(),
+        **kwargs,
+    ):
+        self.shared_buffers = shared_buffers
+        super().__init__(**kwargs)
+
     def run(
         self,
         graph_module: torch.fx.GraphModule,
@@ -48,11 +69,21 @@ class SharedMemoryPlanningPass(MemoryPlanningPass):
             if not isinstance(subgm, torch.fx.GraphModule):
                 continue
             for node in subgm.graph.nodes:
-                if _is_mutable_buffer(node, graph_signature):
-                    node.meta["spec"].mem_id = 2  # mutable buffers are always mem_id 2
+                if _is_buffer(node, graph_signature):
+                    buffer_name = graph_signature.inputs_to_buffers[node.target]
+                    if buffer_name in self.shared_buffers:
+                        # shared mutable buffers are always mem_id 2 -> there is a issue regarding layout. currently can only have a single shared mutable buffer.
+                        node.meta["spec"].mem_id = 2
+
+                        # this is a shared mutable buffer, its lifetime is infinite (max int64):
+                        # this should not be updated by the memory planner, since lifetime can only expand.
+                        node.meta["spec"].lifetime = [0, 9223372036854775807]
+                        # this is a shared mutable buffer, even if we do not modify it, treat it as non-const.
+                        node.meta["spec"].const = False 
+
         parent_result = super().run(graph_module, graph_signature)
 
-        # gathar diagnostic info/ validate consistancy
+        # TODO: gathar diagnostic info/ validate consistancy across all methods
         print("done")
         return parent_result
 
@@ -67,13 +98,14 @@ class SharedMemoryPlanningPass(MemoryPlanningPass):
 class Exporter:
     model: torch.nn.Module
     registered_method_dict: dict[str, tuple[callable, dict]]
+    registered_shared_buffers: set[str]
 
     method_graphs: dict[str, ExportedProgram]
 
     def __init__(self, model: torch.nn.Module):
         self.model = model
         self.registered_method_dict = {}
-
+        self.registered_shared_buffers = set()
         # intermediary states:
         # self.quantized_model  :dict[str, ExportedProgram] = None #from quantize
         self.method_graphs: dict[str, ExportedProgram] = {}  # from export
@@ -87,6 +119,9 @@ class Exporter:
                 f"Function {fn.__name__} is not a method of {self.model.__class__.__name__}"
             )
         self.registered_method_dict[fn.__name__] = (fn, kwargs)
+
+    def register_shared_buffer(self, buffer_name: str):
+        self.registered_shared_buffers.add(buffer_name)
 
     def export(self) -> dict[str, ExportedProgram]:
         with torch.no_grad():
@@ -169,13 +204,12 @@ class Exporter:
         # create the backend config:
         backend_config = ExecutorchBackendConfig(
             memory_planning_pass=SharedMemoryPlanningPass(
+                shared_buffers=self.registered_shared_buffers,
                 memory_planning_algo=greedy,
             )
             # emit_stacktrace=True,
         )
         # Named Buffers:
-        self.edge_program._edge_programs["set_cache"].graph.print_tabular()
-
         self.executorch_program = self.edge_program.to_executorch(config=backend_config)
         # debug:
         for key, method in self.executorch_program._execution_programs.items():
