@@ -1,16 +1,25 @@
 # file that helps generate the exporter
 from enum import Enum
 from pathlib import Path
+from typing import Optional
 import torch
-from torch.export import export, export_for_training, ExportedProgram
+from torch.export import (
+    export,
+    export_for_training,
+    ExportedProgram,
+    ExportGraphSignature,
+)
 from executorch.exir import to_edge, to_edge_transform_and_lower, EdgeProgramManager
 from executorch.exir import ExecutorchProgram, ExecutorchBackendConfig
-from executorch.exir.passes.memory_planning_pass import MemoryPlanningPass
-from executorch.exir.memory_planning import materialize_buffer
+from executorch.exir.pass_base import PassResult
+from executorch.exir.passes.memory_planning_pass import MemoryPlanningPass, greedy
+from executorch.exir.memory_planning import materialize_buffer, _is_mutable_buffer
 
 from contextlib import contextmanager
 
 import inspect
+
+from executorch.exir.dynamic_shape import DynamicMemoryPlanningMode
 
 
 @contextmanager
@@ -27,6 +36,25 @@ def patch_forward(obj: torch.nn.Module, new_method):
     finally:
         # Restore the original method
         obj.__class__.forward = original_method
+
+
+class SharedMemoryPlanningPass(MemoryPlanningPass):
+    def run(
+        self,
+        graph_module: torch.fx.GraphModule,
+        graph_signature: Optional[ExportGraphSignature],
+    ) -> PassResult:
+        for subgm in graph_module.modules():
+            if not isinstance(subgm, torch.fx.GraphModule):
+                continue
+            for node in subgm.graph.nodes:
+                if _is_mutable_buffer(node, graph_signature):
+                    node.meta["spec"].mem_id = 2  # mutable buffers are always mem_id 2
+        parent_result = super().run(graph_module, graph_signature)
+
+        # gathar diagnostic info/ validate consistancy
+        print("done")
+        return parent_result
 
 
 # exporter class that wraps the module, and provides methods for exporting.
@@ -140,13 +168,18 @@ class Exporter:
 
         # create the backend config:
         backend_config = ExecutorchBackendConfig(
-            memory_planning_pass=MemoryPlanningPass(
-                alloc_graph_input=False, alloc_graph_output=False
-            ),
+            memory_planning_pass=SharedMemoryPlanningPass(
+                memory_planning_algo=greedy,
+            )
             # emit_stacktrace=True,
         )
+        # Named Buffers:
+        self.edge_program._edge_programs["set_cache"].graph.print_tabular()
 
         self.executorch_program = self.edge_program.to_executorch(config=backend_config)
+        # debug:
+        for key, method in self.executorch_program._execution_programs.items():
+            method.graph.print_tabular()
         return self.executorch_program
 
     def save(self, dir: Path, name: str):

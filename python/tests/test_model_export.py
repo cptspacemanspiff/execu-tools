@@ -5,6 +5,7 @@ from executorch.backends.xnnpack.partition.xnnpack_partitioner import XnnpackPar
 from execu_tools.model_exporter import Exporter
 from executorch.runtime import Runtime, Verification, Program, Method
 
+
 class StatefulModel(torch.nn.Module):
     def __init__(
         self,
@@ -19,12 +20,15 @@ class StatefulModel(torch.nn.Module):
         )
 
     def set_cache(self, data: torch.Tensor):
+        # self.cache[:,:] = data # this works, but we have 3 caches???
         # get the shape of the date:
         # data_shape = data.shape
         # Dynamically slice based on the target shape
         # slices = tuple(slice(0, dim) for dim in data_shape)
-        self.cache[:,:] = data
-        # return data
+        # batch_sliced = self.cache.narrow(0, 0, data_shape[0])
+        # seq_sliced = batch_sliced.narrow(1, 0, data_shape[1])
+        self.cache.copy_(data)
+        return None
 
     def get_cache(self, data: torch.Tensor):
         # Note this is fragile b/c of the data dependent-ish slicing.
@@ -55,13 +59,13 @@ def test_stateful_export():
     exporter.register(
         model.set_cache,
         # data=(torch.ones(2, 2),{0: batch_size, 1: seq_len}),
-        data=(torch.ones(max_batch_size, max_seq_len))
+        data=(torch.ones(max_batch_size, max_seq_len)),
     )
-    exporter.register(
-        model.get_cache,
-        # data=(torch.ones(2, 2), {0: batch_size, 1: seq_len}),
-        data=(torch.ones(max_batch_size, max_seq_len))
-    )
+    # exporter.register(
+    #     model.get_cache,
+    #     # data=(torch.ones(2, 2), {0: batch_size, 1: seq_len}),
+    #     data=(torch.ones(max_batch_size, max_seq_len))
+    # )
     # quantize model:
     # exporter.quantize()
     # export to aten:
@@ -94,6 +98,7 @@ def test_stateful_export():
 # print(f"Ran forward({inputs})")
 # print(f"  outputs: {outputs}")
 
+
 def test_stateful_export_load():
     output_dir = get_test_dir() / "export_artifacts"
     et_runtime: Runtime = Runtime.get()
@@ -102,9 +107,9 @@ def test_stateful_export_load():
         verification=Verification.Minimal,
     )
     print("Program methods:", program.method_names)
-    set_cache = program.load_method('set_cache')
+    set_cache = program.load_method("set_cache")
     print("set_cache loaded")
-    get_cache = program.load_method('get_cache')
+    get_cache = program.load_method("get_cache")
     print("get_cache loaded")
 
 

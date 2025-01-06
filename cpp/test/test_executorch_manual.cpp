@@ -64,8 +64,8 @@ int main() {
       {planned_arenas.data(), planned_arenas.size()});
 
   auto memory_span =
-      std::span<float>(reinterpret_cast<float *>(planned_arenas[0].data()),
-                       planned_arenas[0].size() / sizeof(float));
+      std::span<float>(reinterpret_cast<float *>(planned_arenas[1].data()),
+                       planned_arenas[1].size() / sizeof(float));
 
   // Version of MemoryAllocator that uses malloc to handle allocations rather
   // then a fixed buffer.
