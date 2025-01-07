@@ -1,4 +1,5 @@
 # file that helps generate the exporter
+import copy
 from enum import Enum
 from pathlib import Path
 from typing import Callable, Optional
@@ -14,7 +15,7 @@ from executorch.exir import ExecutorchProgram, ExecutorchBackendConfig
 from executorch.exir.pass_base import PassResult
 from executorch.exir.passes.memory_planning_pass import MemoryPlanningPass, greedy
 from executorch.exir.memory_planning import materialize_buffer, _is_mutable_buffer
-
+from executorch.devtools.etrecord._etrecord import generate_etrecord
 from contextlib import contextmanager
 
 import inspect
@@ -22,6 +23,10 @@ import inspect
 from executorch.exir.dynamic_shape import DynamicMemoryPlanningMode
 
 from executorch.exir.tensor import ALIGNMENT
+
+from executorch.devtools.etrecord._etrecord import ETRecord
+
+from executorch.util.activation_memory_profiler import generate_memory_trace
 
 
 @contextmanager
@@ -39,6 +44,7 @@ def patch_forward(obj: torch.nn.Module, new_method):
         # Restore the original method
         obj.__class__.forward = original_method
 
+
 def _is_buffer(
     node: torch.fx.Node, graph_signature: Optional[ExportGraphSignature] = None
 ) -> bool:
@@ -50,6 +56,7 @@ def _is_buffer(
             if node.target in graph_signature.inputs_to_buffers:
                 return True
     return False
+
 
 class SharedMemoryPlanningPass(MemoryPlanningPass):
     def __init__(
@@ -74,14 +81,30 @@ class SharedMemoryPlanningPass(MemoryPlanningPass):
                     if buffer_name in self.shared_buffers:
                         # shared mutable buffers are always mem_id 2 -> there is a issue regarding layout. currently can only have a single shared mutable buffer.
                         node.meta["spec"].mem_id = 2
-
                         # this is a shared mutable buffer, its lifetime is infinite (max int64):
                         # this should not be updated by the memory planner, since lifetime can only expand.
+                        # once the memory is planned, we will update the lifetime to the actual lifetime of the buffer (max val of nodes in graph)
                         node.meta["spec"].lifetime = [0, 9223372036854775807]
-                        # this is a shared mutable buffer, even if we do not modify it, treat it as non-const.
-                        node.meta["spec"].const = False 
+                        # this must be a shared mutable buffer, even if we do not modify it, treat it as non-const.
+                        # it will not get correctly if we do not treat it as non-const and add it to buffers to mutate.
+                        # node.meta["spec"].const = False
+                        # graph_module.graph.buffers_to_mutate.add(node.target)
 
         parent_result = super().run(graph_module, graph_signature)
+
+        num_nodes = len(parent_result.graph_module.graph.nodes)
+
+        for subgm in parent_result.graph_module.modules():
+            if not isinstance(subgm, torch.fx.GraphModule):
+                continue
+            for node in subgm.graph.nodes:
+                if _is_buffer(node, graph_signature):
+                    buffer_name = graph_signature.inputs_to_buffers[node.target]
+                    if buffer_name in self.shared_buffers:
+                        node.meta["spec"].lifetime = [0, num_nodes - 1]
+                        # add this to the mutable buffer list so it will be placed correctly:
+
+        # we need to go back throuj and
 
         # TODO: gathar diagnostic info/ validate consistancy across all methods
         print("done")
@@ -91,16 +114,20 @@ class SharedMemoryPlanningPass(MemoryPlanningPass):
 # exporter class that wraps the module, and provides methods for exporting.
 # 1. Init with a module.
 # 2. Register methods of the module that you want to export (including dynamic Dims).
+# 2. Regsister torch buffers that are shared across all methods.
 # 3. TODO: quantize the model.
 # 4. trace the model (export)
 # 5. to_edge the modeln (optionally with backend).
-# 6. save the executorch model.
+# 6. to_executorch the model (alongside ETRecord).
+# 6. save the executorch model + ETRecord.
 class Exporter:
     model: torch.nn.Module
     registered_method_dict: dict[str, tuple[callable, dict]]
     registered_shared_buffers: set[str]
 
     method_graphs: dict[str, ExportedProgram]
+
+    et_record: ETRecord
 
     def __init__(self, model: torch.nn.Module):
         self.model = model
@@ -110,6 +137,9 @@ class Exporter:
         # self.quantized_model  :dict[str, ExportedProgram] = None #from quantize
         self.method_graphs: dict[str, ExportedProgram] = {}  # from export
         self.edge_program: EdgeProgramManager = None  # from to_edge
+        self.edge_program_copy: EdgeProgramManager = (
+            None  # from to_executorch (used in save, for etrecord)
+        )
         self.executorch_program: ExecutorchProgram = None  # from to_executorch
 
     def register(self, fn, **kwargs):
@@ -195,28 +225,43 @@ class Exporter:
 
         self.edge_program = edge_program
 
+        # validate that the edge program is valid:
+        for key, method in self.edge_program._edge_programs.items():
+            method.graph.print_tabular()
+
         return edge_program
 
     def to_executorch(self) -> ExecutorchProgram:
         if self.edge_program is None:
             raise ValueError("No edge program found. to_edge() must be called first.")
 
+        # deepcopy the edge program for later use
+        self.edge_program_copy = copy.deepcopy(self.edge_program)
+
         # create the backend config:
         backend_config = ExecutorchBackendConfig(
             memory_planning_pass=SharedMemoryPlanningPass(
                 shared_buffers=self.registered_shared_buffers,
                 memory_planning_algo=greedy,
-            )
-            # emit_stacktrace=True,
+                alloc_graph_input = False,
+                alloc_graph_output = True,
+            ),
+            # emit_stacktrace=True, #does not work?
         )
-        # Named Buffers:
+        # Does this mutate the edge program?
         self.executorch_program = self.edge_program.to_executorch(config=backend_config)
         # debug:
         for key, method in self.executorch_program._execution_programs.items():
+            print(f"method: {key}")
+            nodes = method.graph_module.graph.nodes
             method.graph.print_tabular()
+            # for node in method.graph_module
         return self.executorch_program
 
-    def save(self, dir: Path, name: str):
+    def save(
+        self, dir: Path, name: str, et_record: bool = True, memory_trace: bool = True
+    ):
+        model_name = self.model.__class__.__name__
         if self.executorch_program is None:
             raise ValueError(
                 "No executorch program found. to_executorch() must be called first."
@@ -227,3 +272,22 @@ class Exporter:
         path = dir / (name + ".pte")
         with open(path, "wb") as f:
             f.write(self.executorch_program.buffer)
+
+        if et_record:
+            save_path = dir / (name + ".etrecord")
+            generate_etrecord(
+                save_path,
+                None,
+                self.executorch_program,
+                {model_name: self.edge_program_copy},
+            )
+
+        if memory_trace:
+            for method in self.executorch_program.methods:
+                output_file = dir / f"{model_name}-{method}-memory_profile.json"
+                generate_memory_trace(
+                    executorch_program_manager=self.executorch_program,
+                    chrome_trace_filename=output_file,
+                    enable_memory_offsets=True,
+                    method_name=method,
+                )

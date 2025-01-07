@@ -20,22 +20,22 @@ class StatefulModel(torch.nn.Module):
         )
 
     def set_cache(self, data: torch.Tensor):
-        # self.cache[:,:] = data # this works, but we have 3 caches???
-        # get the shape of the date:
-        # data_shape = data.shape
-        # Dynamically slice based on the target shape
-        # slices = tuple(slice(0, dim) for dim in data_shape)
-        # batch_sliced = self.cache.narrow(0, 0, data_shape[0])
-        # seq_sliced = batch_sliced.narrow(1, 0, data_shape[1])
         self.cache.copy_(data)
+        self.cache.add_(0) # this is a hack to fix bug: https://github.com/pytorch/executorch/issues/7515
         return None
 
     def get_cache(self, data: torch.Tensor):
         # Note this is fragile b/c of the data dependent-ish slicing.
         # we *must* use narrow, rathar than indexing. There may be otherways to
         # do this, but this did not have to futz with torch._checks.
+        # self.cache.add_(0)
+        # mutate the cache so that it is placed correctly:
 
         data.copy_(self.cache)
+        self.cache.add_(0) # this is a hack to fix bug: https://github.com/pytorch/executorch/issues/7515
+        # it is also a hack to fix the issue that constants are handled differently 
+        # than mutable buffers, so we need to mutate the buffer. (TODO: fix this)
+        return None
 
 
 def get_test_dir() -> Path:
@@ -64,11 +64,11 @@ def test_stateful_export():
     batch_size = Dim("batch_size_dim", min=1, max=max_batch_size)
     seq_len = Dim("seq_len_dim", min=1, max=max_seq_len)
 
-    # exporter.register(
-    #     model.set_cache,
-    #     # data=(torch.ones(2, 2),{0: batch_size, 1: seq_len}),
-    #     data=(torch.ones(max_batch_size, max_seq_len)),
-    # )
+    exporter.register(
+        model.set_cache,
+        # data=(torch.ones(2, 2),{0: batch_size, 1: seq_len}),
+        data=(torch.ones(max_batch_size, max_seq_len)),
+    )
     exporter.register(
         model.get_cache,
         # data=(torch.ones(2, 2), {0: batch_size, 1: seq_len}),
