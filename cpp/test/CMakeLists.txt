@@ -13,6 +13,7 @@ target_link_libraries(
           extension_data_loader
           extension_module_static
           extension_tensor
+          ExecuTools::ExecuTools
           ExecuTools::ExecuToolsUtils)
 
 cmt_target_headers(
