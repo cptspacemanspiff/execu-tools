@@ -2,7 +2,8 @@
 import copy
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
+from operator import attrgetter
 import torch
 from torch.export import (
     export,
@@ -37,7 +38,7 @@ def patch_forward(obj: torch.nn.Module, new_method):
     items that reference self.
     """
     original_method = obj.__class__.forward
-    obj.__class__.forward = new_method
+    # obj.__class__.forward = new_method
     try:
         yield
     finally:
@@ -123,7 +124,7 @@ class SharedMemoryPlanningPass(MemoryPlanningPass):
 class Exporter:
     model: torch.nn.Module
     registered_method_dict: dict[str, tuple[callable, dict]]
-    registered_shared_buffers: set[str]
+    registered_shared_buffers: dict[str, tuple[torch.Tensor, Callable]]
 
     method_graphs: dict[str, ExportedProgram]
 
@@ -132,7 +133,7 @@ class Exporter:
     def __init__(self, model: torch.nn.Module):
         self.model = model
         self.registered_method_dict = {}
-        self.registered_shared_buffers = set()
+        self.registered_shared_buffers = {}
         # intermediary states:
         # self.quantized_model  :dict[str, ExportedProgram] = None #from quantize
         self.method_graphs: dict[str, ExportedProgram] = {}  # from export
@@ -150,16 +151,76 @@ class Exporter:
             )
         self.registered_method_dict[fn.__name__] = (fn, kwargs)
 
-    def register_shared_buffer(self, buffer_name: str):
-        self.registered_shared_buffers.add(buffer_name)
+    def register_shared_buffer(self, fqn: str):
+        # fqn can be a string to a buffer in a model or a module.
+        try:
+            object = attrgetter(fqn)(self.model)
+        except AttributeError as e:
+            raise ValueError(
+                f"register_shared_buffer: Object {fqn} does not exist in {self.model.__class__.__name__}"
+            )
+        if isinstance(object, torch.Tensor):
+            # check if the object is a buffer:
+            if not fqn in [
+                n for n, _ in self.model.named_buffers()
+            ]:  # object is a buffer.
+                raise ValueError(
+                    f"register_shared_buffer: {fqn} is not a buffer in {self.model.__class__.__name__}"
+                )
+            if not fqn in [n for n in self.model.state_dict()]:  # buffer is persistent.
+                raise ValueError(
+                    f"register_shared_buffer: Buffer {fqn} is not persistent in {self.model.__class__.__name__}"
+                )
+            # copy the buffer to avoid touching the original buffer, when it is used for initialization.
+            self.registered_shared_buffers[fqn] = copy.deepcopy(object)
+        elif isinstance(object, torch.nn.Module):
+            # add all buffers that are not marked as non persistent:
+            for name, buffer in object.named_buffers():  # object is a buffer.
+                if name in object.state_dict():  # buffer is persistent.
+                    self.register_shared_buffer(fqn + "." + name)
+        else:
+            raise ValueError(
+                f"register_shared_buffer: Object {fqn} in {self.model.__class__.__name__} must be a Tensor or Module"
+            )
+
+    # def register_shared_buffer(self, fqn: str):
+    #     if isinstance(fqn, str):
+    #         # adding via fqn:
+    #         # validate that the buffer exists in the model state_dict:
+    #         if not fqn in self.model.state_dict():
+    #             raise ValueError(
+    #                 f"Buffer {fqn} does not exist in {self.model.__class__.__name__} state dict."
+    #             )
+    #         self.registered_shared_buffers.add(fqn)
+    #     else:
+    #         raise ValueError(f"Cannot register buffer of type {type(buffer)}")
+
+    # def register_shared_buffer(self, module: torch.nn.Module, recursive: bool = True):
+    #     if isinstance(module, torch.nn.Module):
+    #         # adding via object, add all buffers not marked as non persistent:
+    #         for _name, _buffer in module.named_buffers(recursive=recursive):
+    #             if _name in module.state_dict().keys():
+    #                 self.registered_shared_buffers.add(_name)
 
     def export(self) -> dict[str, ExportedProgram]:
+
+        if len(self.registered_shared_buffers) > 0:
+            # create a new init function that sets all of the shared buffers:
+            def et_module_init(module : torch.nn.Module):
+                for fqn, buffer_value in self.registered_shared_buffers.items():
+                    setattr(self, fqn, torch.zeros_like(buffer_value))
+                    print(f"set {fqn} to {buffer_value}")
+
+            # add to method dict:
+            self.registered_method_dict['et_module_init'] = (et_module_init, {})
+            # et_module_init(self.model)
+
         with torch.no_grad():
             for method in self.registered_method_dict:
                 fn, kwargs = self.registered_method_dict[method]
                 # update the forward method of the model:
                 with patch_forward(self.model, fn):
-                    sig = inspect.signature(self.model.forward)
+                    sig = inspect.signature(self.model.set_cache)
                     param_names = [param.name for param in sig.parameters.values()]
                     print(param_names)
                     example_args = {}
@@ -197,6 +258,7 @@ class Exporter:
                         (),
                         kwargs=example_args,
                         dynamic_shapes=dynamic_shapes,
+                        fn = self.model.set_cache,
                         # strict=True
                     )
                     self.method_graphs[fn.__name__] = method_graph
@@ -243,8 +305,8 @@ class Exporter:
             memory_planning_pass=SharedMemoryPlanningPass(
                 shared_buffers=self.registered_shared_buffers,
                 memory_planning_algo=greedy,
-                alloc_graph_input = False,
-                alloc_graph_output = True,
+                alloc_graph_input=False,
+                alloc_graph_output=True,
             ),
             # emit_stacktrace=True, #does not work?
         )

@@ -6,6 +6,25 @@ from execu_tools.model_exporter import Exporter
 from executorch.runtime import Runtime, Verification, Program, Method
 
 
+class subobject(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.register_buffer(
+            "subcache",
+            torch.ones(10, 20, dtype=torch.float32),
+            persistent=True,
+        )
+        self.register_buffer(
+            "subcache_non_persistent",
+            torch.ones(10, 20, dtype=torch.float32),
+            persistent=False,
+        )
+        self.register_parameter(
+            "subcache_parameter",
+            torch.nn.Parameter(torch.ones(10, 20, dtype=torch.float32)),
+        )
+
+
 class StatefulModel(torch.nn.Module):
     def __init__(
         self,
@@ -18,10 +37,14 @@ class StatefulModel(torch.nn.Module):
             torch.ones((max_batch_size, max_seq_len), dtype=torch.float32),
             persistent=True,
         )
+        self.subobject = subobject()
 
     def set_cache(self, data: torch.Tensor):
+        self.subobject.subcache.copy_(data)
         self.cache.copy_(data)
-        self.cache.add_(0) # this is a hack to fix bug: https://github.com/pytorch/executorch/issues/7515
+        self.cache.add_(
+            0
+        )  # this is a hack to fix bug: https://github.com/pytorch/executorch/issues/7515
         return None
 
     def get_cache(self, data: torch.Tensor):
@@ -32,8 +55,10 @@ class StatefulModel(torch.nn.Module):
         # mutate the cache so that it is placed correctly:
 
         data.copy_(self.cache)
-        self.cache.add_(0) # this is a hack to fix bug: https://github.com/pytorch/executorch/issues/7515
-        # it is also a hack to fix the issue that constants are handled differently 
+        self.cache.add_(
+            0
+        )  # this is a hack to fix bug: https://github.com/pytorch/executorch/issues/7515
+        # it is also a hack to fix the issue that constants are handled differently
         # than mutable buffers, so we need to mutate the buffer. (TODO: fix this)
         return None
 
@@ -48,17 +73,13 @@ def test_stateful_export():
 
     model = StatefulModel(max_batch_size=max_batch_size, max_seq_len=max_seq_len)
 
-    model.set_cache(torch.ones(max_batch_size, max_seq_len))
-
-    tensor = torch.ones(max_batch_size, max_seq_len)+20
-
-    print(model.get_cache(tensor))
-
-
     exporter = Exporter(model)
 
-    # register the buffer:
-    exporter.register_shared_buffer("cache")
+    # register the buffer by fqn ie "cache or subobject.subcache":
+    # exporter.register_shared_buffer("cache")
+
+    # register the buffer by object (registers all persistant buffers in the object):
+    # exporter.register_shared_buffer('subobject')
 
     # register the methods:
     batch_size = Dim("batch_size_dim", min=1, max=max_batch_size)
@@ -69,11 +90,11 @@ def test_stateful_export():
         # data=(torch.ones(2, 2),{0: batch_size, 1: seq_len}),
         data=(torch.ones(max_batch_size, max_seq_len)),
     )
-    exporter.register(
-        model.get_cache,
-        # data=(torch.ones(2, 2), {0: batch_size, 1: seq_len}),
-        data=(torch.ones(max_batch_size, max_seq_len)),
-    )
+    # exporter.register(
+    #     model.get_cache,
+    #     # data=(torch.ones(2, 2), {0: batch_size, 1: seq_len}),
+    #     data=(torch.ones(max_batch_size, max_seq_len)),
+    # )
     # quantize model:
     # exporter.quantize()
     # export to aten:

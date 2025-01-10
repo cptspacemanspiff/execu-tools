@@ -23,8 +23,6 @@ from executorch.backends.xnnpack.partition.xnnpack_partitioner import XnnpackPar
 import inspect
 
 
-
-
 def test_encoder_decoder_export(model_name="Helsinki-NLP/opus-mt-en-fr"):
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
