@@ -46,10 +46,9 @@ class StatefulModel(torch.nn.Module):
 
     def set_cache(self, data: torch.Tensor):
         self.cache.copy_(data)
-        self.cache.add_(self.subobject.subcache)
-        # self.cache.add_(
-        #     0
-        # )  # this is a hack to fix bug: https://github.com/pytorch/executorch/issues/7515
+        self.cache.add_(
+            0
+        )  # this is a hack to fix bug: https://github.com/pytorch/executorch/issues/7515
         return None
     
     def set_cache_zero(self):
@@ -101,20 +100,16 @@ def test_stateful_export():
     batch_size = Dim("batch_size_dim", min=1, max=max_batch_size)
     seq_len = Dim("seq_len_dim", min=1, max=max_seq_len)
 
-    # exporter.register(
-    #     model.set_cache,
-    #     # data=(torch.ones(2, 2),{0: batch_size, 1: seq_len}),
-    #     data=(torch.ones(max_batch_size, max_seq_len)),
-    # )
-    # exporter.register(
-    #     model.set_cache_zero,
-    #     # data=(torch.ones(max_batch_size, max_seq_len)),
-    # )
-    # exporter.register(
-    #     model.get_cache,
-    #     # data=(torch.ones(2, 2), {0: batch_size, 1: seq_len}),
-    #     data=(torch.ones(max_batch_size, max_seq_len)),
-    # )
+    exporter.register(
+        model.set_cache,
+        # data=(torch.ones(2, 2),{0: batch_size, 1: seq_len}),
+        data=(torch.ones(max_batch_size, max_seq_len)),
+    )
+    exporter.register(
+        model.get_cache,
+        # data=(torch.ones(2, 2), {0: batch_size, 1: seq_len}),
+        data=(torch.ones(max_batch_size, max_seq_len)),
+    )
     # quantize model:
     # exporter.quantize()
     # export to aten:

@@ -59,14 +59,16 @@ def _is_buffer(
                 return True
     return False
 
-
 class SharedMemoryPlanningPass(MemoryPlanningPass):
     def __init__(
         self,
         shared_buffers: set[str] = set(),
+        init_shared_buffers: bool = False,
         **kwargs,
     ):
         self.shared_buffers = shared_buffers
+        self.init_shared_buffers = init_shared_buffers
+        self.shared_buffers_memory_layout = {}
         super().__init__(**kwargs)
 
     def run(
@@ -74,42 +76,55 @@ class SharedMemoryPlanningPass(MemoryPlanningPass):
         graph_module: torch.fx.GraphModule,
         graph_signature: Optional[ExportGraphSignature],
     ) -> PassResult:
-        for subgm in graph_module.modules():
-            if not isinstance(subgm, torch.fx.GraphModule):
-                continue
-            for node in subgm.graph.nodes:
-                if _is_buffer(node, graph_signature):
-                    buffer_name = graph_signature.inputs_to_buffers[node.target]
-                    if buffer_name in self.shared_buffers:
-                        # shared mutable buffers are always mem_id 2 -> there is a issue regarding layout. currently can only have a single shared mutable buffer.
-                        node.meta["spec"].mem_id = 2
-                        # this is a shared mutable buffer, its lifetime is infinite (max int64):
-                        # this should not be updated by the memory planner, since lifetime can only expand.
-                        # once the memory is planned, we will update the lifetime to the actual lifetime of the buffer (max val of nodes in graph)
-                        node.meta["spec"].lifetime = [0, 9223372036854775807]
-                        # this must be a shared mutable buffer, even if we do not modify it, treat it as non-const.
-                        # it will not get correctly if we do not treat it as non-const and add it to buffers to mutate.
-                        # node.meta["spec"].const = False
-                        # graph_module.graph.buffers_to_mutate.add(node.target)
+        for node in graph_module.graph.nodes:
+            if _is_buffer(node, graph_signature):
+                buffer_name = graph_signature.inputs_to_buffers[node.target]
+                if buffer_name in self.shared_buffers:
+                    # shared mutable buffers are always mem_id 2 -> there is a issue regarding layout. currently can only have a single shared mutable buffer.
+                    node.meta["spec"].mem_id = 2
+                    # this is a shared mutable buffer, its lifetime is infinite (max int64):
+                    # this should not be updated by the memory planner, since lifetime can only expand.
+                    # once the memory is planned, we will update the lifetime to the actual lifetime of the buffer (max val of nodes in graph)
+                    node.meta["spec"].lifetime = [0, 9223372036854775807]
+                    # this must be a shared mutable buffer, even if we do not modify it, treat it as non-const.
+                    # it will not get correctly if we do not treat it as non-const and add it to buffers to mutate.
+                    # node.meta["spec"].const = False
+                    # graph_module.graph.buffers_to_mutate.add(node.target)
 
         parent_result = super().run(graph_module, graph_signature)
 
         num_nodes = len(parent_result.graph_module.graph.nodes)
 
-        for subgm in parent_result.graph_module.modules():
-            if not isinstance(subgm, torch.fx.GraphModule):
-                continue
-            for node in subgm.graph.nodes:
+        if self.init_shared_buffers:
+            # pull the buffer layout that was memory planned:
+            print("pulling buffer layout")
+            for node in parent_result.graph_module.graph.nodes:
                 if _is_buffer(node, graph_signature):
                     buffer_name = graph_signature.inputs_to_buffers[node.target]
                     if buffer_name in self.shared_buffers:
-                        node.meta["spec"].lifetime = [0, num_nodes - 1]
-                        # add this to the mutable buffer list so it will be placed correctly:
+                        # this node is in our shared buffers:
+                        # we need to save mem_id, mem_obj_id, and mem_offset:
+                        self.shared_buffers_memory_layout[buffer_name] = {
+                            "mem_id": node.meta["spec"].mem_id,
+                            "mem_obj_id": node.meta["spec"].mem_obj_id,
+                            "mem_offset": node.meta["spec"].mem_offset,
+                        }
 
-        # we need to go back throuj and
+
+        for node in parent_result.graph_module.graph.nodes:
+            if _is_buffer(node, graph_signature):
+                buffer_name = graph_signature.inputs_to_buffers[node.target]
+                if buffer_name in self.shared_buffers:
+                    node.meta["spec"].lifetime = [0, num_nodes - 1]
+                    # update the memory layout w/ the shared buffer memory layout:
+                    node.meta["spec"].mem_id = self.shared_buffers_memory_layout[buffer_name]["mem_id"]
+                    node.meta["spec"].mem_obj_id = self.shared_buffers_memory_layout[buffer_name]["mem_obj_id"]
+                    node.meta["spec"].mem_offset = self.shared_buffers_memory_layout[buffer_name]["mem_offset"]
+                    pass
+
+        # we need to go back through and
 
         # TODO: gathar diagnostic info/ validate consistancy across all methods
-        print("done")
         return parent_result
 
 
@@ -185,7 +200,6 @@ class Exporter:
             )
 
     def export(self) -> dict[str, ExportedProgram]:
-
         if len(self.registered_shared_buffers) > 0:
             # copy this so that it can be captured by the init function:
             default_dict = {}
@@ -205,7 +219,7 @@ class Exporter:
                     # buffer = getattr(self_module,key)
                     buffer = attrgetter(key)(self_module)
                     # const_vals = _get_constant_default(key)
-                    buffer.copy_(torch.zeros_like(buffer)) 
+                    buffer.copy_(torch.zeros_like(buffer))
                     buffer.add_(0)
                 return None
 
@@ -216,7 +230,7 @@ class Exporter:
                 self.model.et_module_init,
                 {},
             )
-            # et_module_init(self.model)
+            # # et_module_init(self.model)
 
         with torch.no_grad():
             for method in self.registered_method_dict:
@@ -280,6 +294,7 @@ class Exporter:
                 "No method graphs found. Please trace (export) the model first."
             )
         if partitioners is None:
+            # as part of out 'to_edge' op we need to
             edge_program: EdgeProgramManager = to_edge(self.method_graphs)
         else:
             edge_program: EdgeProgramManager = to_edge_transform_and_lower(
@@ -302,17 +317,34 @@ class Exporter:
         # deepcopy the edge program for later use
         self.edge_program_copy = copy.deepcopy(self.edge_program)
 
+        # create a shared memory planning pass:
+        shared_memory_planning_pass = SharedMemoryPlanningPass(
+            init_shared_buffers=True,
+            shared_buffers=self.registered_shared_buffers,
+            memory_planning_algo=greedy,
+            alloc_graph_input=False,
+            alloc_graph_output=True,
+        )
+
         # create the backend config:
         backend_config = ExecutorchBackendConfig(
-            memory_planning_pass=SharedMemoryPlanningPass(
-                shared_buffers=self.registered_shared_buffers,
-                memory_planning_algo=greedy,
-                alloc_graph_input=False,
-                alloc_graph_output=True,
-            ),
+            memory_planning_pass=shared_memory_planning_pass
             # emit_stacktrace=True, #does not work?
         )
-        # Does this mutate the edge program?
+
+        # run the memory planning pass to init shared buffers:
+        tmp_edge_program = copy.deepcopy(self.edge_program)
+        # only run et_module_init:
+        tmp_edge_program._edge_programs = {
+            name: prog for name, prog in tmp_edge_program._edge_programs.items() 
+            if name == "et_module_init"
+        }
+        tmp_edge_program.to_executorch(config=backend_config)
+
+        # turn off the memory planning pass init shared buffers:
+        backend_config.memory_planning_pass.init_shared_buffers = False
+
+        # Export for real (now that we have the shared buffer memory layout):
         self.executorch_program = self.edge_program.to_executorch(config=backend_config)
         # debug:
         for key, method in self.executorch_program._execution_programs.items():
@@ -339,6 +371,7 @@ class Exporter:
 
         if et_record:
             save_path = dir / (name + ".etrecord")
+            #TODO fix the requirement that the edge program is not None.
             # generate_etrecord(
             #     save_path,
             #     None,
