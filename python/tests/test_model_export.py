@@ -68,7 +68,7 @@ class StatefulModel(torch.nn.Module):
         # mutate the cache so that it is placed correctly:
 
         data.copy_(self.cache)
-        self.cache.add_(
+        self.othercache.add_(
             0
         )  # this is a hack to fix bug: https://github.com/pytorch/executorch/issues/7515
         # it is also a hack to fix the issue that constants are handled differently

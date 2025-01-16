@@ -59,6 +59,7 @@ def _is_buffer(
                 return True
     return False
 
+
 class SharedMemoryPlanningPass(MemoryPlanningPass):
     def __init__(
         self,
@@ -110,16 +111,21 @@ class SharedMemoryPlanningPass(MemoryPlanningPass):
                             "mem_offset": node.meta["spec"].mem_offset,
                         }
 
-
         for node in parent_result.graph_module.graph.nodes:
             if _is_buffer(node, graph_signature):
                 buffer_name = graph_signature.inputs_to_buffers[node.target]
                 if buffer_name in self.shared_buffers:
                     node.meta["spec"].lifetime = [0, num_nodes - 1]
                     # update the memory layout w/ the shared buffer memory layout:
-                    node.meta["spec"].mem_id = self.shared_buffers_memory_layout[buffer_name]["mem_id"]
-                    node.meta["spec"].mem_obj_id = self.shared_buffers_memory_layout[buffer_name]["mem_obj_id"]
-                    node.meta["spec"].mem_offset = self.shared_buffers_memory_layout[buffer_name]["mem_offset"]
+                    node.meta["spec"].mem_id = self.shared_buffers_memory_layout[
+                        buffer_name
+                    ]["mem_id"]
+                    node.meta["spec"].mem_obj_id = self.shared_buffers_memory_layout[
+                        buffer_name
+                    ]["mem_obj_id"]
+                    node.meta["spec"].mem_offset = self.shared_buffers_memory_layout[
+                        buffer_name
+                    ]["mem_offset"]
                     pass
 
         # we need to go back through and
@@ -293,14 +299,59 @@ class Exporter:
             raise ValueError(
                 "No method graphs found. Please trace (export) the model first."
             )
-        if partitioners is None:
-            # as part of out 'to_edge' op we need to
-            edge_program: EdgeProgramManager = to_edge(self.method_graphs)
-        else:
-            edge_program: EdgeProgramManager = to_edge_transform_and_lower(
-                self.method_graphs,
-                partitioner=partitioners,
+
+        # TODO hack before calling to edge we need to transform the graph to force all mutable buffers to be shared.
+        def transform_append_mutation_in_place(
+            gm: torch.fx.GraphModule,
+            graph_signature: ExportGraphSignature,
+            buffer_name: str,
+        ):
+            for node in gm.graph.nodes:
+                if node.name in graph_signature.inputs_to_buffers:
+                    if graph_signature.inputs_to_buffers[node.name] == buffer_name:
+                        mutated_node = node
+                if node.op == "output":
+                    # append a mutation to the end of the graph: (add zero to the buffer)
+                    output_node = node
+                    break
+
+            assert mutated_node is not None
+            with gm.graph.inserting_before(output_node) as node:
+                node = gm.graph.call_function(torch.ops.aten.add_, (mutated_node, 0))
+            gm.recompile()
+
+        tmp_method_graphs = copy.deepcopy(self.method_graphs)
+        tmp_edge_program: EdgeProgramManager = to_edge_transform_and_lower(
+            tmp_method_graphs,
+            partitioner=partitioners,
+        )
+        const_shared_buffers = {}
+        for name, program in tmp_edge_program._edge_programs.items():
+            const_shared_buffers[name] = []
+            signature_buffers = program.graph_signature.buffers
+            signature_mutated_buffers = (
+                program.graph_signature.buffers_to_mutate.values()
             )
+            for buffer in signature_buffers:
+                if (buffer not in signature_mutated_buffers) and (
+                    buffer in self.registered_shared_buffers.keys()
+                ):
+                    const_shared_buffers[name].append(buffer)
+
+        # append a method to the end of the exported program that mutates the shared buffer:
+        for name, program in self.method_graphs.items():
+            if len(const_shared_buffers[name]) > 0:
+                for buf_name in const_shared_buffers[name]:
+                    # append a method to the end of the exported program that mutates the shared buffer:
+                    transform_append_mutation_in_place(
+                        program.graph_module, program.graph_signature, buf_name
+                    )
+                pass
+
+        edge_program: EdgeProgramManager = to_edge_transform_and_lower(
+            self.method_graphs,
+            partitioner=partitioners,
+        )
 
         self.edge_program = edge_program
 
@@ -336,7 +387,8 @@ class Exporter:
         tmp_edge_program = copy.deepcopy(self.edge_program)
         # only run et_module_init:
         tmp_edge_program._edge_programs = {
-            name: prog for name, prog in tmp_edge_program._edge_programs.items() 
+            name: prog
+            for name, prog in tmp_edge_program._edge_programs.items()
             if name == "et_module_init"
         }
         tmp_edge_program.to_executorch(config=backend_config)
@@ -346,6 +398,7 @@ class Exporter:
 
         # Export for real (now that we have the shared buffer memory layout):
         self.executorch_program = self.edge_program.to_executorch(config=backend_config)
+
         # debug:
         for key, method in self.executorch_program._execution_programs.items():
             print(f"method: {key}")
@@ -371,7 +424,7 @@ class Exporter:
 
         if et_record:
             save_path = dir / (name + ".etrecord")
-            #TODO fix the requirement that the edge program is not None.
+            # TODO fix the requirement that the edge program is not None.
             # generate_etrecord(
             #     save_path,
             #     None,
@@ -382,9 +435,9 @@ class Exporter:
         if memory_trace:
             for method in self.executorch_program.methods:
                 output_file = dir / f"{model_name}-{method}-memory_profile.json"
-                generate_memory_trace(
-                    executorch_program_manager=self.executorch_program,
-                    chrome_trace_filename=output_file,
-                    enable_memory_offsets=True,
-                    method_name=method,
-                )
+                # generate_memory_trace(
+                #     executorch_program_manager=self.executorch_program,
+                #     chrome_trace_filename=output_file,
+                #     enable_memory_offsets=True,
+                #     method_name=method,
+                # )
