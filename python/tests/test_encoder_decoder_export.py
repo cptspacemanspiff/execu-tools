@@ -224,23 +224,22 @@ def test_ones_cache_generation(model_name="Helsinki-NLP/opus-mt-en-fr"):
     model_wrapper = setup_wrapper(model, max_batch_size=batch_size)
     
     # Set all cache buffers to ones
-    # for cache in [model_wrapper.cache.self_attention_cache, model_wrapper.cache.cross_attention_cache]:
-    #     for key_cache, value_cache in zip(cache.key_cache, cache.value_cache):
-    #         key_cache.fill_(1.0)
-    #         value_cache.fill_(1.0)
+    for cache in [model_wrapper.cache.self_attention_cache, model_wrapper.cache.cross_attention_cache]:
+        for key_cache, value_cache in zip(cache.key_cache, cache.value_cache):
+            key_cache.fill_(1.0)
+            value_cache.fill_(1.0)
 
-    # model_wrapper.decoded_outputs.fill_(1.0)
+    model_wrapper.decoded_outputs.fill_(1.0)
 
     # Test with multiple inputs to ensure batch processing works with ones cache
     test_inputs = [
-        "This is a ",
+        "This is a ", #short fragment for validating attention mask.
         "Another test sentence for verification of ones in the cache."
     ]
     input_ids = tokenizer(test_inputs, return_tensors="pt", padding=True)
 
-    reference_cache = copy.deepcopy(model_wrapper.cache)
     # Get reference outputs
-    reference_outputs = model.generate(**input_ids,past_key_values=reference_cache)
+    reference_outputs = model.generate(**input_ids)
     reference_texts = [
         tokenizer.decode(output, skip_special_tokens=False)
         for output in reference_outputs
