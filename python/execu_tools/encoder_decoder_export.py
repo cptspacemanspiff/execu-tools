@@ -102,13 +102,11 @@ class EncoderDecoderWrapper(torch.nn.Module):
         # get the next token logits:
         next_token_logits = decoder_output.logits[:, -1, :].clone().float()
         next_token_scores = self.prepared_logits_processor(
-            self.decoded_outputs, next_token_logits
+            self.decoded_outputs[:, :cache_position[-1]+1], next_token_logits
         )
 
         # greedy:
         next_tokens = torch.argmax(next_token_scores, dim=-1)
-
-        # this has a ton of data-dependent slicing, so we need to be careful.
 
         # update the decoder inputs:
         self.decoded_outputs[:, cache_position[-1] + 1] = next_tokens
