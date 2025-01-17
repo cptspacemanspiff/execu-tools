@@ -1,6 +1,6 @@
 # Load model directly
 
-
+import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
 from execu_tools.encoder_decoder_export import EncoderDecoderWrapper
@@ -69,15 +69,95 @@ def test_encoder_decoder_export(model_name="Helsinki-NLP/opus-mt-en-fr"):
     # Assert the outputs match
     assert wrapper_text == reference_text, f"Expected: {reference_text}\nGot: {wrapper_text}"
 
+def test_max_length_completion(model_name="Helsinki-NLP/opus-mt-en-fr"):
+    """Test that generation stops when max_length is reached."""
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    
+    # Set a very short max length to force truncation
+    max_generation_length = 5
+    model.generation_config.update(
+        use_cache=True,
+        max_length=max_generation_length,
+        num_beams=1,
+    )
+    
+    test_input = ["This is a long sentence that should generate a long output to test max length."]
+    input_ids = tokenizer(test_input, return_tensors="pt", padding=True)
+    
+    # Setup cache and wrapper
+    encoder_cache = StaticCache(model.config, max_cache_len=40, max_batch_size=1)
+    decoder_cache = StaticCache(model.config, max_cache_len=80, max_batch_size=1)
+    cache = EncoderDecoderCache(decoder_cache, encoder_cache)
+    model_wrapper = EncoderDecoderWrapper(model, cache)
+    
+    # Generate tokens
+    finished = False
+    finished, tokens = model_wrapper.generate(encoder_inputs=input_ids["input_ids"], reset_state=True)
+    all_tokens = tokens
+    
+    num_steps = 0
+    while not finished:
+        finished, new_tokens = model_wrapper.generate(
+            encoder_inputs=input_ids["input_ids"], reset_state=False
+        )
+        all_tokens = torch.cat((all_tokens, new_tokens), dim=1)
+        num_steps += 1
+    
+    # Verify we stopped at max length
+    assert all_tokens.shape[1] <= max_generation_length, f"Generated {all_tokens.shape[1]} tokens, expected <= {max_generation_length}"
+
+def test_eos_token_completion(model_name="Helsinki-NLP/opus-mt-en-fr"):
+    """Test that generation stops when EOS token is generated."""
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    
+    # Set a long max length to ensure we stop due to EOS
+    max_generation_length = 50
+    model.generation_config.update(
+        use_cache=True,
+        max_length=max_generation_length,
+        num_beams=1,
+    )
+    
+    test_input = ["Hello world"]  # Short input likely to generate EOS before max length
+    input_ids = tokenizer(test_input, return_tensors="pt", padding=True)
+    
+    # Get reference output to verify EOS behavior
+    reference_output = model.generate(**input_ids)
+    reference_length = reference_output.shape[1]
+    
+    # Setup cache and wrapper
+    encoder_cache = StaticCache(model.config, max_cache_len=40, max_batch_size=1)
+    decoder_cache = StaticCache(model.config, max_cache_len=80, max_batch_size=1)
+    cache = EncoderDecoderCache(decoder_cache, encoder_cache)
+    model_wrapper = EncoderDecoderWrapper(model, cache)
+    
+    # Generate tokens
+    finished = False
+    finished, tokens = model_wrapper.generate(encoder_inputs=input_ids["input_ids"], reset_state=True)
+    all_tokens = tokens
+    
+    while not finished:
+        finished, new_tokens = model_wrapper.generate(
+            encoder_inputs=input_ids["input_ids"], reset_state=False
+        )
+        all_tokens = torch.cat((all_tokens, new_tokens), dim=1)
+    
+    # Verify we stopped at same length as reference (due to EOS)
+    assert all_tokens.shape[1] == reference_length, (
+        f"Generated {all_tokens.shape[1]} tokens, expected {reference_length} "
+        f"(reference output length)"
+    )
+    assert all_tokens.shape[1] < max_generation_length, (
+        f"Generated {all_tokens.shape[1]} tokens, which equals max_length {max_generation_length}. "
+        f"Expected to stop earlier due to EOS token."
+    )
 
 if __name__ == "__main__":
-    # test_encoder_decoder()
     test_encoder_decoder_export()
-    # test_stateful_export()
-
-
-import torch
-from torch.export import export, export_for_training, ExportedProgram
+    test_max_length_completion()
+    test_eos_token_completion()
 
 
 # class M(torch.nn.Module):

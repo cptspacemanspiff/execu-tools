@@ -163,7 +163,7 @@ class EncoderDecoderWrapper(torch.nn.Module):
 
             # We are doing prefill:
             prefill_len = 1  # should not be hardcoded.....
-            prefill_positions = torch.tensor(torch.arange(prefill_len))
+            prefill_positions = torch.arange(prefill_len)
             decoder_inputs = torch.tensor(
                 [[self.generation_config._decoder_start_token_tensor]]
             )

@@ -143,20 +143,21 @@ def test_stateful_export():
 # print(f"  outputs: {outputs}")
 
 
-def test_stateful_export_load():
-    output_dir = get_test_dir() / "export_artifacts"
-    et_runtime: Runtime = Runtime.get()
-    program: Program = et_runtime.load_program(
-        Path(output_dir / "stateful_model.pte"),
-        verification=Verification.Minimal,
-    )
-    print("Program methods:", program.method_names)
-    set_cache = program.load_method("set_cache")
-    print("set_cache loaded")
-    get_cache = program.load_method("get_cache")
-    print("get_cache loaded")
+# def test_stateful_export_load():
+#     output_dir = get_test_dir() / "export_artifacts"
+#     et_runtime: Runtime = Runtime.get()
+#     program: Program = et_runtime.load_program(
+#         Path(output_dir / "stateful_model.pte"),
+#         verification=Verification.Minimal,
+#     )
+#     print("Program methods:", program.method_names)
+#     set_cache = program.load_method("set_cache")
+#     print("set_cache loaded")
+#     get_cache = program.load_method("get_cache")
+#     print("get_cache loaded")
 
 
 if __name__ == "__main__":
     test_stateful_export()
     # test_stateful_export_load()
+    pass
