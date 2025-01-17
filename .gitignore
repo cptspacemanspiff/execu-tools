@@ -4,3 +4,4 @@ export_artifacts
 build
 .cache
 .executools_env
+.executools

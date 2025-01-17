@@ -1,142 +1,196 @@
-from contextlib import contextmanager
 import torch
-
-# from transfomers
-from dataclasses import dataclass
-from transformers import PreTrainedModel
-
-from transformers import StaticCache, EncoderDecoderCache
+from transformers.modeling_outputs import BaseModelOutput
+from transformers.cache_utils import EncoderDecoderCache
+from transformers.generation.stopping_criteria import StoppingCriteriaList
+from transformers.generation.logits_process import LogitsProcessorList
 
 
-
-
-
-@dataclass
-class EncoderDecoderExportableConfig:
-    ### Setup sizes:
-    min_batch_size: int
-    max_batch_size: int
-
-    min_encoder_seq_len: int
-    max_encoder_seq_len: int
-
-    min_decoder_seq_len: int
-    max_decoder_seq_len: int
-
-    ### Cache setup:
-    cache_dtype: torch.dtype
-
-
-class EncoderDecoderExportable(torch.nn.Module):
-
-    def __init__(
-        self,
-        model: PreTrainedModel,
-        exportable_config: EncoderDecoderExportableConfig,
-    ):
-
+class EncoderDecoderWrapper(torch.nn.Module):
+    def __init__(self, model, cache):
         super().__init__()
-
-        # Sanity checks
-        if model.generation_config is None:
-            raise AssertionError(
-                "The model must have a generation config to be exported with static caching. "
-                "Please set `generation_config`."
-            )
-
-        if not model.config.is_encoder_decoder:
-            raise AssertionError(
-                "The model must be an encoder-decoder model to be exported with TorchExportableEncoderDecoder."
-            )
-
-        # verify that the model supports static caching:
-
         self.model = model
-        self.config = exportable_config
+        self.cache = cache
+        if type(self.cache) is EncoderDecoderCache:
+            self_attn_cache = self.cache.self_attention_cache
+            cross_attn_cache = self.cache.cross_attention_cache
 
-        # things automagically pulled from the model:
-        self.is_causal = True
-        encoder_embedding_dim = self.model.config.d_model
+            max_encoder_sequence_length = cross_attn_cache.key_cache[0].shape[2]
+            _max_encoder_batch_size = cross_attn_cache.key_cache[0].shape[0]
+            max_decoder_sequence_length = self_attn_cache.key_cache[0].shape[2]
+            _max_decoder_batch_size = self_attn_cache.key_cache[0].shape[0]
+            assert _max_encoder_batch_size == _max_decoder_batch_size
+            max_batch_size = _max_decoder_batch_size
+        else:
+            raise ValueError("Cache is not an EncoderDecoderCache")
 
-        # Create the cache storage:
-        encoder_cache = StaticCache(
-            model.config,
-            max_cache_len=self.config.max_batch_size,
-            max_batch_size=self.config.max_encoder_seq_len,
-            dtype=self.config.cache_dtype,
+        # TODO: embedding dim should be dynamic based on model config.
+        self.register_buffer(
+            "encoder_output",
+            torch.zeros(max_batch_size, max_encoder_sequence_length, 512),
         )
-        decoder_cache = StaticCache(
-            model.config,
-            max_cache_len=self.config.max_batch_size,
-            max_batch_size=self.config.max_encoder_seq_len,
-            dtype=self.config.cache_dtype,
-        )
-        self.static_cache = EncoderDecoderCache(decoder_cache, encoder_cache)
 
-        if self.is_causal:
-            causal_mask = torch.tril(
-                torch.ones(
-                    decoder_cache.max_cache_len,
-                    decoder_cache.max_cache_len,
-                    dtype=torch.bool,
-                )
+        # setup static things that are not part of execution (follow generate roughly)
+        # get the bos id
+        self.generation_config, self.model_kwargs = (
+            self.model._prepare_generation_config(
+                self.model.generation_config, past_key_values=self.cache
             )
-            self.register_buffer("mask", causal_mask, persistent=False)
+        )
+        self.model._prepare_special_tokens(self.generation_config, False, None)
 
-        encoder_seq_len = torch.tensor(0, dtype=torch.int32)
+        # get the stopping criteria:
+        stopping_criteria = StoppingCriteriaList()  # can override if needed
+        self.prepared_stopping_criteria = self.model._get_stopping_criteria(
+            generation_config=self.generation_config,
+            stopping_criteria=stopping_criteria,
+        )
+        self.has_eos_stopping_criteria = any(
+            hasattr(criteria, "eos_token_id")
+            for criteria in self.prepared_stopping_criteria
+        )
+
+        # register a buffer to manage the unfinished sequences:
+        # number of sequences is at mac the cache batch dimension:
+
         self.register_buffer(
-            "encoder_seq_len",
-            encoder_seq_len,
-            persistent=True,
+            "unfinished_sequences", torch.ones(max_batch_size, dtype=torch.long)
         )
-        # create a buffer for encoder output (bz,seq_len,embedding_dim):
-        encoder_last_hidden_state = torch.zeros(
-            self.config.max_batch_size,
-            self.config.max_encoder_seq_len,
-            encoder_embedding_dim,
-            dtype=self.model.get_decoder().dtype,
-        )
+
         self.register_buffer(
-            "encoder_last_hidden_state", encoder_last_hidden_state, persistent=True
+            "decoded_outputs",
+            torch.zeros(
+                (max_batch_size, max_decoder_sequence_length), dtype=torch.long
+            ),
         )
-        # create a buffer for encoder attention mask (bz,seq_len,embedding_dim):
-        encoder_attention_mask = torch.zeros(
-            self.config.max_batch_size,
-            self.config.max_encoder_seq_len,
-            encoder_embedding_dim,
-            dtype=self.model.get_decoder().dtype,
-        )
+
+        self.register_buffer("cache_position", torch.zeros((1,), dtype=torch.long))
+
         self.register_buffer(
-            "encoder_attention_mask", encoder_attention_mask, persistent=True
+            "next_tokens", torch.zeros((max_batch_size, 1), dtype=torch.long)
+        )  # should be 2d, with batch size as first dim.
+
+        # set the start of sequence token:
+        self.decoded_outputs[:, 0] = self.generation_config._decoder_start_token_tensor
+
+        # get the logits processors:
+        logits_processor = LogitsProcessorList()  # can override if needed
+        self.prepared_logits_processor = self.model._get_logits_processor(
+            generation_config=self.generation_config,
+            input_ids_seq_length=None,  # maybe needed?
+            encoder_input_ids=None,  # maybe needed?
+            prefix_allowed_tokens_fn=None,  # override if needed
+            logits_processor=logits_processor,
+            device=None,  # override if needed
+            model_kwargs=self.model_kwargs,
+            negative_prompt_ids=None,  # override if needed
+            negative_prompt_attention_mask=None,  # override if needed
+        )
+        print("done init")
+
+    def run_decoder(
+        self, encoder_outputs, decoder_inputs, cache_position: torch.Tensor
+    ) -> dict:
+
+        decoder_output = self.model(
+            encoder_outputs=encoder_outputs,
+            decoder_input_ids=decoder_inputs,  # attention_mask=encoder_attention_mask
+            cache_position=cache_position,
+            past_key_values=self.cache,
+            return_dict=True,
         )
 
-    def forward_encoder(
-        self,
-        encoder_input_ids: torch.Tensor,
-        encoder_attention_mask: torch.Tensor,
-    ):
-
-        # generate the encoder input ids:
-        encoder = self.model.get_encoder()
-        encoder_output = encoder(
-            input_ids=encoder_input_ids, attention_mask=encoder_attention_mask
-        )
-        batch_size, seq_len, embed_dim = encoder_output.last_hidden_state.shape
-        self.encoder_seq_len.fill_(seq_len)
-        self.encoder_last_hidden_state[:batch_size, :seq_len, :] = (
-            encoder_output.last_hidden_state
+        # get the next token logits:
+        next_token_logits = decoder_output.logits[:, -1, :].clone().float()
+        next_token_scores = self.prepared_logits_processor(
+            self.decoded_outputs, next_token_logits
         )
 
-        return encoder_output.last_hidden_state
+        # greedy:
+        next_tokens = torch.argmax(next_token_scores, dim=-1)
 
-    def forward_decoder(
-        self,
-        decoder_input_ids: torch.Tensor,
-        decoder_cache_position: torch.Tensor,
-        # parameters that should be auto provided:
-        encoder_sequence_length: torch.Tensor = None,
-    ):
-        """
-        Forward pass of the module, which is compatible with the ExecuTorch runtime.
-        """
-        pass
+        # this has a ton of data-dependent slicing, so we need to be careful.
+
+        # update the decoder inputs:
+        self.decoded_outputs[:, cache_position[-1] + 1] = next_tokens
+
+        # handle stopping criteria:
+        if self.has_eos_stopping_criteria:
+            # next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
+            pass
+
+        self.unfinished_sequences = (
+            self.unfinished_sequences
+            & ~self.prepared_stopping_criteria(
+                self.decoded_outputs[:, : cache_position[-1] + 2], next_token_scores
+            )
+        )
+        finished = self.unfinished_sequences.max() == 0
+
+        return finished, next_tokens.unsqueeze(1)
+
+    def generate(self, encoder_inputs, reset_state: bool = True):
+
+        # call encoder forward:
+        # if this is the first call:
+        batch_size, encoder_sequence_length = encoder_inputs.shape
+
+        if encoder_sequence_length > self.encoder_output.shape[1]:
+            raise ValueError(
+                "Encoder sequence length is greater than the max encoder sequence length"
+            )
+        if batch_size > self.encoder_output.shape[0]:
+            raise ValueError("Batch size is greater than the max batch size")
+
+        if reset_state:
+            # reset the unfinished sequences, up to our current batch size:
+            self.unfinished_sequences.fill_(0)
+            self.unfinished_sequences[:batch_size] = torch.ones(
+                batch_size, dtype=torch.long
+            )
+
+            encoder = self.model.get_encoder()
+            encoder_dict = encoder(
+                input_ids=encoder_inputs,  # attention_mask=encoder_attention_mask
+            )
+            self.encoder_output[:batch_size, :encoder_sequence_length, :] = (
+                encoder_dict["last_hidden_state"]
+            )
+            encoder_model_output = BaseModelOutput(
+                last_hidden_state=self.encoder_output[
+                    :batch_size, :encoder_sequence_length, :
+                ]
+            )
+
+            # We are doing prefill:
+            prefill_len = 1  # should not be hardcoded.....
+            prefill_positions = torch.tensor(torch.arange(prefill_len))
+            decoder_inputs = torch.tensor(
+                [[self.generation_config._decoder_start_token_tensor]]
+            )
+
+            finished, next_tokens = self.run_decoder(
+                encoder_model_output, decoder_inputs, prefill_positions
+            )
+
+            self.cache_position = prefill_positions[-1:]+1
+            self.next_tokens = next_tokens
+
+            return finished, torch.cat((decoder_inputs, next_tokens), dim=1)
+
+        else:
+            # we are doing decode:
+            encoder_model_output = BaseModelOutput(
+                last_hidden_state=self.encoder_output[
+                    :batch_size, :encoder_sequence_length, :
+                ]
+            )
+
+            decoder_inputs = self.next_tokens
+            finished, next_tokens = self.run_decoder(
+                encoder_model_output, decoder_inputs, self.cache_position
+            )
+            self.cache_position += 1
+            self.next_tokens = next_tokens
+
+            return finished, next_tokens
+

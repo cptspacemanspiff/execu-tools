@@ -10,7 +10,8 @@ class TestBufferMutationBug(torch.nn.Module):
     def forward(self, x):
         # set_cache type op.
         # self.buffer = x
-        self.buffer.copy_(x)
+        y = x + 0
+        self.buffer.copy_(y)
 
 
         # this is a hack around the bug, last op cannot be a mutable _copy op.
@@ -41,6 +42,10 @@ exported_program.graph.print_tabular()
 print("\nEdge IR graph (after decomposing to ATen operators):")
 edge_program = to_edge(exported_program)
 edge_program._edge_programs['forward'].graph.print_tabular()
+
+executorch_program = edge_program.to_executorch()
+
+print("done")
 
 # # Convert to XNNPACK format (occurs here as well)
 # print("\nXNNPACK graph (after partitioning for XNNPACK backend):")

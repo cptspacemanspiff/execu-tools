@@ -13,6 +13,14 @@
             "justMyCode": false
         },
         {
+            "name": "model_encoder_decoder_export",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/python/tests/test_encoder_decoder_export.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
             "name": "Python Debugger: Current File",
             "type": "debugpy",
             "request": "launch",

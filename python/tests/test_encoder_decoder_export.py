@@ -1,26 +1,11 @@
 # Load model directly
 
-from dataclasses import dataclass
+
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-from execu_tools.encoder_decoder_export import (
-    EncoderDecoderExportable,
-    EncoderDecoderExportableConfig,
-    StatefulModel,
-    patch_forward,
-)
 
-import torch
-import torch.export._trace
-
-from torch.export import export, Dim, ExportedProgram
-from executorch.exir import (
-    to_edge,
-    to_edge_transform_and_lower,
-    EdgeCompileConfig,
-    EdgeProgramManager,
-)
-from executorch.backends.xnnpack.partition.xnnpack_partitioner import XnnpackPartitioner
-import inspect
+from execu_tools.encoder_decoder_export import EncoderDecoderWrapper
+from execu_tools.model_exporter import Exporter
+from transformers.cache_utils import StaticCache, EncoderDecoderCache
 
 
 def test_encoder_decoder_export(model_name="Helsinki-NLP/opus-mt-en-fr"):
@@ -30,73 +15,65 @@ def test_encoder_decoder_export(model_name="Helsinki-NLP/opus-mt-en-fr"):
         model_name
         # attn_implementation=attn_implementation,
     )
+    # torch._dynamo.config.capture_scalar_outputs = True
 
     cache_implementation = "static"
-    max_batch_size = 4
-    max_generation_length = 200
+    max_batch_size = 1
+    max_generation_length = 20
 
+    # First get reference output using HuggingFace generate
     model.generation_config.update(
         use_cache=True,
-        cache_implementation=cache_implementation,
         max_length=max_generation_length,
-        cache_config={
-            "batch_size": max_batch_size,
-            "max_cache_len": max_generation_length,
-        },
+        num_beams=1,  # only greedy is compile compatible right now.
     )
+    
+    test_input = ["When the night has come and the land is dark, and the moon is the only light we will see."]
+    input_ids = tokenizer(test_input, return_tensors="pt", padding=True)
+    
+    # Get reference output
+    reference_output = model.generate(**input_ids)
+    reference_text = tokenizer.decode(reference_output[0], skip_special_tokens=True)
+    print(f"Reference output: {reference_text}")
 
-    exportable_config = EncoderDecoderExportableConfig(
-        min_batch_size=1,
-        max_batch_size=max_batch_size,
-        min_encoder_seq_len=1,
-        max_encoder_seq_len=max_generation_length,
-        min_decoder_seq_len=1,
-        max_decoder_seq_len=max_generation_length,
-        cache_dtype=torch.float32,
+    # Now test our wrapper implementation
+    encoder_cache = StaticCache(
+        model.config,
+        max_cache_len=40,
+        max_batch_size=1,
     )
-    exportable = EncoderDecoderExportable(model, exportable_config)
+    decoder_cache = StaticCache(
+        model.config,
+        max_cache_len=80,
+        max_batch_size=1,
+    )
+    cache = EncoderDecoderCache(decoder_cache, encoder_cache)
 
-    print("done")
+    model_wrapper = EncoderDecoderWrapper(model, cache)
 
-    with torch.no_grad():
-        # TODO: The default inputs only work for text models. We need to add support for vision/audio models.
-        example_input_ids = torch.tensor([[10]], dtype=torch.long)
-        example_attention_mask = torch.tensor([[1]], dtype=torch.bool)
+    finished = False
+    finished, tokens = model_wrapper.generate(
+        encoder_inputs=input_ids["input_ids"], reset_state=True
+    )
+    
+    all_tokens = tokens
+    while not finished:
+        finished, new_tokens = model_wrapper.generate(
+            encoder_inputs=input_ids["input_ids"], reset_state=False
+        )
+        all_tokens = torch.cat((all_tokens, new_tokens), dim=1)
 
-        # functions to export:
-        func_list = ["forward_encoder"]  # , "forward_decoder"]
-
-        programs: dict[str, torch.export.ExportedProgram] = {}
-
-        # patch the forward method:
-        for func_name in func_list:
-            # function_attr = getattr(exportable, func_list[0])
-            with patch_forward(exportable, exportable.forward_2):
-                kwargs = {
-                    "encoder_input_ids": example_input_ids,
-                    "encoder_attention_mask": example_attention_mask,
-                }
-                # validate that it runs:
-                # exportable(**kwargs)
-
-                # Due to issue https://github.com/pytorch/pytorch/issues/128394, we need to switch to use an internal
-                # export API and pre_dispatch=False. Switch to use the public API once the issue is included in 2.5 release.
-                exported_program = export(
-                    exportable,
-                    (example_input_ids, example_attention_mask),
-                    # pre_dispatch=False,
-                    strict=True,
-                )
-                programs[func_name] = exported_program
-
-        return programs
+    wrapper_text = tokenizer.decode(all_tokens[0], skip_special_tokens=True)
+    print(f"Wrapper output: {wrapper_text}")
+    
+    # Assert the outputs match
+    assert wrapper_text == reference_text, f"Expected: {reference_text}\nGot: {wrapper_text}"
 
 
 if __name__ == "__main__":
     # test_encoder_decoder()
-    # test_encoder_decoder_export()
-    test_stateful_export()
-
+    test_encoder_decoder_export()
+    # test_stateful_export()
 
 
 import torch
