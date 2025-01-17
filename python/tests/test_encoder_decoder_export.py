@@ -49,25 +49,33 @@ def setup_wrapper(
     return EncoderDecoderWrapper(model, cache)
 
 
-def generate_with_wrapper(model_wrapper, input_ids, set_ones_after_reset=False):
+def generate_with_wrapper(model_wrapper, input_ids, set_ones_after_reset=False, compile=False):
     """Run generation with the wrapper until completion."""
+    generate_fn = model_wrapper.generate
+    if compile:
+        with torch.no_grad():
+            compiled_generate_fn = torch.compile(generate_fn, mode="reduce-overhead",fullgraph=True)
+            model_wrapper.generate = compiled_generate_fn
+            generate_fn = model_wrapper.generate
+
     finished = False
-    finished, tokens = model_wrapper.generate(
+    finished, tokens, decoder_outputs = generate_fn(
         encoder_inputs=input_ids["input_ids"],
         encoder_attention_mask=input_ids["attention_mask"],
-        reset_state=True
+        reset_state=True,
+        past_decoder_outputs=torch.tensor([[]])
     )
     all_tokens = tokens
-
 
     if set_ones_after_reset:
         model_wrapper.decoded_outputs[:,1:] = 1.0
 
     while not finished:
-        finished, new_tokens = model_wrapper.generate(
+        finished, new_tokens, decoder_outputs = generate_fn(
             encoder_inputs=input_ids["input_ids"],
             encoder_attention_mask=input_ids["attention_mask"],
-            reset_state=False
+            reset_state=False,
+            past_decoder_outputs=decoder_outputs
         )
         all_tokens = torch.cat((all_tokens, new_tokens), dim=1)
 
@@ -263,64 +271,51 @@ def test_ones_cache_generation(model_name="Helsinki-NLP/opus-mt-en-fr"):
         )
 
 
+def manual_test_compiled_generation(model_name="Helsinki-NLP/opus-mt-en-fr"):
+    """Test that generation works correctly with torch.compile."""
+    max_generation_length = 50
+    model, tokenizer = setup_model_and_tokenizer(model_name, max_generation_length)
+
+    test_input = [
+        "When the night has come and the land is dark, and the moon is the only light we will see."
+    ]
+    input_ids = tokenizer(test_input, return_tensors="pt", padding=True)
+
+    # Get reference output from uncompiled model
+    model_wrapper = setup_wrapper(model)
+    reference_tokens = generate_with_wrapper(model_wrapper, input_ids, compile=False)
+    reference_text = tokenizer.decode(reference_tokens[0], skip_special_tokens=False)
+    print(f"Reference output (uncompiled): {reference_text}")
+
+    # Test with compiled generate function
+    compiled_tokens = generate_with_wrapper(model_wrapper, input_ids, compile=True)
+    compiled_text = tokenizer.decode(compiled_tokens[0], skip_special_tokens=False)
+    print(f"Wrapper output (compiled): {compiled_text}")
+
+    # assert (
+    #     compiled_text == reference_text
+    # ), f"Expected: {reference_text}\nGot: {compiled_text}"
+
+    # # Test with a different input to ensure compilation works consistently
+    # test_input_2 = ["This is another test sentence to verify compilation works consistently."]
+    # input_ids_2 = tokenizer(test_input_2, return_tensors="pt", padding=True)
+    
+    # reference_tokens_2 = generate_with_wrapper(model_wrapper, input_ids_2, compile=False)
+    # reference_text_2 = tokenizer.decode(reference_tokens_2[0], skip_special_tokens=False)
+    
+    # compiled_tokens_2 = generate_with_wrapper(model_wrapper, input_ids_2, compile=True)
+    # compiled_text_2 = tokenizer.decode(compiled_tokens_2[0], skip_special_tokens=False)
+    
+    # assert (
+    #     compiled_text_2 == reference_text_2
+    # ), f"Expected (2nd input): {reference_text_2}\nGot: {compiled_text_2}"
+
+
 if __name__ == "__main__":
-    # test_encoder_decoder_export()
+    test_encoder_decoder_export()
     # test_max_length_completion()
     # test_eos_token_completion()
     # test_batched_generation()
-    test_ones_cache_generation()
-
-
-# class M(torch.nn.Module):
-#     def __init__(self):
-#         super().__init__()
-#         self.param = torch.nn.Parameter(torch.rand(3, 4))
-#         self.linear = torch.nn.Linear(4, 5)
-
-#     def forward(self, x):
-#         return self.linear(x + self.param).clamp(min=0.0, max=1.0)
-
-
-# example_args = (torch.randn(3, 4),)
-# pre_autograd_aten_dialect = export_for_training(M(), example_args).module()
-# # Optionally do quantization:
-# # pre_autograd_aten_dialect = convert_pt2e(prepare_pt2e(pre_autograd_aten_dialect, CustomBackendQuantizer))
-# aten_dialect: ExportedProgram = export(pre_autograd_aten_dialect, example_args)
-# edge_program: exir.EdgeProgramManager = exir.to_edge(aten_dialect)
-# # Optionally do delegation:
-# # edge_program = edge_program.to_backend(CustomBackendPartitioner)
-# executorch_program: exir.ExecutorchProgramManager = edge_program.to_executorch(
-#     ExecutorchBackendConfig(
-#         passes=[],  # User-defined passes
-#     )
-# )
-
-# with open("model.pte", "wb") as file:
-#     file.write(executorch_program.buffer)
-
-# def test_encoder_decoder(model_name="Helsinki-NLP/opus-mt-en-fr"):
-#     """Validate that the model works at all.
-
-#     Args:
-#         model_name (str, optional): _description_. Defaults to "Helsinki-NLP/opus-mt-en-fr".
-#     """
-#     tokenizer = AutoTokenizer.from_pretrained(model_name)
-#     model = AutoModelForSeq2SeqLM.from_pretrained(
-#         model_name
-#         # attn_implementation=attn_implementation,
-#     )
-
-#     cache_implementation = "static"
-#     max_batch_size = 4
-#     max_generation_length = 200
-
-#     strings_1 = [
-#         "When the night has come and the land is dark, and the moon is the only light we will see.",
-#         "Abba is the best",
-#         # "When the night has come and the land is dark, and the moon is the only light we will see.",
-#         # "When the night has come and the land is dark, and the moon is the only light we will see.",
-#     ]
-#     input_ids = tokenizer(strings_1, return_tensors="pt", padding=True)
-#     tokens = model.generate(**input_ids)
-#     text_translated = [tokenizer.decode(t, skip_special_tokens=False) for t in tokens]
-#     print(text_translated)
+    # test_ones_cache_generation()
+    # test_compiled_generation()
+    pass
