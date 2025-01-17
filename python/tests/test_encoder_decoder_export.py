@@ -1,5 +1,6 @@
 # Load model directly
 
+import copy
 import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
@@ -48,17 +49,25 @@ def setup_wrapper(
     return EncoderDecoderWrapper(model, cache)
 
 
-def generate_with_wrapper(model_wrapper, input_ids):
+def generate_with_wrapper(model_wrapper, input_ids, set_ones_after_reset=False):
     """Run generation with the wrapper until completion."""
     finished = False
     finished, tokens = model_wrapper.generate(
-        encoder_inputs=input_ids["input_ids"], reset_state=True
+        encoder_inputs=input_ids["input_ids"],
+        encoder_attention_mask=input_ids["attention_mask"],
+        reset_state=True
     )
     all_tokens = tokens
 
+
+    if set_ones_after_reset:
+        model_wrapper.decoded_outputs[:,1:] = 1.0
+
     while not finished:
         finished, new_tokens = model_wrapper.generate(
-            encoder_inputs=input_ids["input_ids"], reset_state=False
+            encoder_inputs=input_ids["input_ids"],
+            encoder_attention_mask=input_ids["attention_mask"],
+            reset_state=False
         )
         all_tokens = torch.cat((all_tokens, new_tokens), dim=1)
 
@@ -76,13 +85,13 @@ def test_encoder_decoder_export(model_name="Helsinki-NLP/opus-mt-en-fr"):
 
     # Get reference output
     reference_output = model.generate(**input_ids)
-    reference_text = tokenizer.decode(reference_output[0], skip_special_tokens=True)
+    reference_text = tokenizer.decode(reference_output[0], skip_special_tokens=False)
     print(f"Reference output: {reference_text}")
 
     # Test wrapper implementation
     model_wrapper = setup_wrapper(model)
     all_tokens = generate_with_wrapper(model_wrapper, input_ids)
-    wrapper_text = tokenizer.decode(all_tokens[0], skip_special_tokens=True)
+    wrapper_text = tokenizer.decode(all_tokens[0], skip_special_tokens=False)
     print(f"Wrapper output: {wrapper_text}")
 
     assert (
@@ -166,10 +175,101 @@ def test_eos_token_completion(model_name="Helsinki-NLP/opus-mt-en-fr"):
     )
 
 
+def test_batched_generation(model_name="Helsinki-NLP/opus-mt-en-fr"):
+    """Test that generation works correctly with batched inputs."""
+    max_generation_length = 25
+    batch_size = 3
+    model, tokenizer = setup_model_and_tokenizer(model_name, max_generation_length)
+
+    test_inputs = [
+        "The quick brown fox jumps over the lazy dog.",
+        "Hello world, how are you today?",
+        "Python is a great programming language.",
+    ]
+    input_ids = tokenizer(test_inputs, return_tensors="pt", padding=True)
+
+    # Get reference outputs
+    reference_outputs = model.generate(**input_ids)
+    reference_texts = [
+        tokenizer.decode(output, skip_special_tokens=False)
+        for output in reference_outputs
+    ]
+    print(f"Reference outputs: {reference_texts}")
+
+    # Test wrapper implementation with batched inputs
+    model_wrapper = setup_wrapper(model, max_batch_size=batch_size)
+    all_tokens = generate_with_wrapper(model_wrapper, input_ids)
+    wrapper_texts = [
+        tokenizer.decode(tokens, skip_special_tokens=False)
+        for tokens in all_tokens
+    ]
+    print(f"Wrapper outputs: {wrapper_texts}")
+
+    # Check that each sequence in the batch matches the reference
+    for i, (wrapper_text, reference_text) in enumerate(zip(wrapper_texts, reference_texts)):
+        assert wrapper_text == reference_text, (
+            f"Batch item {i} mismatch:\n"
+            f"Expected: {reference_text}\n"
+            f"Got: {wrapper_text}"
+        )
+
+
+def test_ones_cache_generation(model_name="Helsinki-NLP/opus-mt-en-fr"):
+    """Test that generation works correctly when the static cache is initialized with ones."""
+    max_generation_length = 40
+    batch_size = 2
+    model, tokenizer = setup_model_and_tokenizer(model_name, max_generation_length)
+
+    # Use shared setup and then modify cache
+    model_wrapper = setup_wrapper(model, max_batch_size=batch_size)
+    
+    # Set all cache buffers to ones
+    # for cache in [model_wrapper.cache.self_attention_cache, model_wrapper.cache.cross_attention_cache]:
+    #     for key_cache, value_cache in zip(cache.key_cache, cache.value_cache):
+    #         key_cache.fill_(1.0)
+    #         value_cache.fill_(1.0)
+
+    # model_wrapper.decoded_outputs.fill_(1.0)
+
+    # Test with multiple inputs to ensure batch processing works with ones cache
+    test_inputs = [
+        "This is a ",
+        "Another test sentence for verification of ones in the cache."
+    ]
+    input_ids = tokenizer(test_inputs, return_tensors="pt", padding=True)
+
+    reference_cache = copy.deepcopy(model_wrapper.cache)
+    # Get reference outputs
+    reference_outputs = model.generate(**input_ids,past_key_values=reference_cache)
+    reference_texts = [
+        tokenizer.decode(output, skip_special_tokens=False)
+        for output in reference_outputs
+    ]
+    print(f"Reference outputs with normal cache: {reference_texts}")
+
+    # Test wrapper implementation with ones cache
+    all_tokens = generate_with_wrapper(model_wrapper, input_ids, set_ones_after_reset=False)
+    wrapper_texts = [
+        tokenizer.decode(tokens, skip_special_tokens=False)
+        for tokens in all_tokens
+    ]
+    print(f"Wrapper outputs with ones cache: {wrapper_texts}")
+
+    # Check that each sequence in the batch matches the reference
+    for i, (wrapper_text, reference_text) in enumerate(zip(wrapper_texts, reference_texts)):
+        assert wrapper_text == reference_text, (
+            f"Batch item {i} mismatch with ones cache:\n"
+            f"Expected: {reference_text}\n"
+            f"Got: {wrapper_text}"
+        )
+
+
 if __name__ == "__main__":
-    test_encoder_decoder_export()
+    # test_encoder_decoder_export()
     # test_max_length_completion()
     # test_eos_token_completion()
+    # test_batched_generation()
+    test_ones_cache_generation()
 
 
 # class M(torch.nn.Module):

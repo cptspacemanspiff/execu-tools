@@ -85,15 +85,36 @@ class EncoderDecoderWrapper(torch.nn.Module):
             negative_prompt_ids=None,  # override if needed
             negative_prompt_attention_mask=None,  # override if needed
         )
-        print("done init")
+
+        self.is_causal = True  # are they all causal?
+
+        self.register_buffer(
+            "decoder_attention_mask",
+            torch.tril(
+                torch.ones(
+                    max_decoder_sequence_length,
+                    max_decoder_sequence_length,
+                    dtype=torch.bool,
+                )
+            ),
+        )
 
     def run_decoder(
-        self, encoder_outputs, decoder_inputs, cache_position: torch.Tensor
+        self, encoder_outputs, encoder_attention_mask, decoder_inputs, cache_position: torch.Tensor
     ) -> dict:
+
+        batch_size, seqlen = decoder_inputs.shape
+        attn_mask = (
+            self.decoder_attention_mask[cache_position, :seqlen]
+            if self.is_causal
+            else None
+        )
 
         decoder_output = self.model(
             encoder_outputs=encoder_outputs,
+            attention_mask=encoder_attention_mask,
             decoder_input_ids=decoder_inputs,  # attention_mask=encoder_attention_mask
+            decoder_attention_mask=attn_mask,
             cache_position=cache_position,
             past_key_values=self.cache,
             return_dict=True,
@@ -102,7 +123,7 @@ class EncoderDecoderWrapper(torch.nn.Module):
         # get the next token logits:
         next_token_logits = decoder_output.logits[:, -1, :].clone().float()
         next_token_scores = self.prepared_logits_processor(
-            self.decoded_outputs[:, :cache_position[-1]+1], next_token_logits
+            self.decoded_outputs[:, : cache_position[-1] + 1], next_token_logits
         )
 
         # greedy:
@@ -113,7 +134,11 @@ class EncoderDecoderWrapper(torch.nn.Module):
 
         # handle stopping criteria:
         if self.has_eos_stopping_criteria:
-            # next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
+            next_tokens = (
+                next_tokens * self.unfinished_sequences
+                + self.generation_config._pad_token_tensor
+                * (1 - self.unfinished_sequences)
+            )[:batch_size]
             pass
 
         self.unfinished_sequences = (
@@ -126,7 +151,9 @@ class EncoderDecoderWrapper(torch.nn.Module):
 
         return finished, next_tokens.unsqueeze(1)
 
-    def generate(self, encoder_inputs, reset_state: bool = True):
+    def generate(
+        self, encoder_inputs, encoder_attention_mask, reset_state: bool = True
+    ):
 
         # call encoder forward:
         # if this is the first call:
@@ -140,6 +167,8 @@ class EncoderDecoderWrapper(torch.nn.Module):
             raise ValueError("Batch size is greater than the max batch size")
 
         if reset_state:
+            self.cache.reset()
+
             # reset the unfinished sequences, up to our current batch size:
             self.unfinished_sequences.fill_(0)
             self.unfinished_sequences[:batch_size] = torch.ones(
@@ -149,6 +178,7 @@ class EncoderDecoderWrapper(torch.nn.Module):
             encoder = self.model.get_encoder()
             encoder_dict = encoder(
                 input_ids=encoder_inputs,  # attention_mask=encoder_attention_mask
+                attention_mask=encoder_attention_mask,
             )
             self.encoder_output[:batch_size, :encoder_sequence_length, :] = (
                 encoder_dict["last_hidden_state"]
@@ -163,14 +193,14 @@ class EncoderDecoderWrapper(torch.nn.Module):
             prefill_len = 1  # should not be hardcoded.....
             prefill_positions = torch.arange(prefill_len)
             decoder_inputs = torch.tensor(
-                [[self.generation_config._decoder_start_token_tensor]]
+                [[self.generation_config._decoder_start_token_tensor]] * batch_size
             )
 
             finished, next_tokens = self.run_decoder(
-                encoder_model_output, decoder_inputs, prefill_positions
+                encoder_model_output, encoder_attention_mask, decoder_inputs, prefill_positions
             )
 
-            self.cache_position = prefill_positions[-1:]+1
+            self.cache_position = prefill_positions[-1:] + 1
             self.next_tokens = next_tokens
 
             return finished, torch.cat((decoder_inputs, next_tokens), dim=1)
@@ -185,10 +215,9 @@ class EncoderDecoderWrapper(torch.nn.Module):
 
             decoder_inputs = self.next_tokens
             finished, next_tokens = self.run_decoder(
-                encoder_model_output, decoder_inputs, self.cache_position
+                encoder_model_output, encoder_attention_mask, decoder_inputs, self.cache_position
             )
             self.cache_position += 1
             self.next_tokens = next_tokens
 
             return finished, next_tokens
-
