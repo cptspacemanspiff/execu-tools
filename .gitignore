@@ -3,5 +3,5 @@ __pycache__
 export_artifacts
 build
 .cache
-.executools_env
+.executools_venv
 .executools

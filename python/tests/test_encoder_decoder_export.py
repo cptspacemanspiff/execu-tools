@@ -51,35 +51,29 @@ def setup_wrapper(
 
 def generate_with_wrapper(model_wrapper, input_ids, set_ones_after_reset=False, compile=False):
     """Run generation with the wrapper until completion."""
-    generate_fn = model_wrapper.generate
-    if compile:
-        with torch.no_grad():
-            compiled_generate_fn = torch.compile(generate_fn, mode="reduce-overhead",fullgraph=True)
-            model_wrapper.generate = compiled_generate_fn
-            generate_fn = model_wrapper.generate
+    with torch.no_grad():
+        if compile:
+            model_wrapper.generate = torch.compile(model_wrapper.generate, mode="reduce-overhead",fullgraph=True)
 
-    finished = False
-    finished, tokens, decoder_outputs = generate_fn(
-        encoder_inputs=input_ids["input_ids"],
-        encoder_attention_mask=input_ids["attention_mask"],
-        reset_state=True,
-        past_decoder_outputs=torch.tensor([[]])
-    )
-    all_tokens = tokens
-
-    if set_ones_after_reset:
-        model_wrapper.decoded_outputs[:,1:] = 1.0
-
-    while not finished:
-        finished, new_tokens, decoder_outputs = generate_fn(
+        finished = False
+        finished, tokens, decoder_outputs = model_wrapper.generate(
             encoder_inputs=input_ids["input_ids"],
             encoder_attention_mask=input_ids["attention_mask"],
-            reset_state=False,
-            past_decoder_outputs=decoder_outputs
+            reset_state=True,
+            past_decoder_outputs=torch.tensor([[]])
         )
-        all_tokens = torch.cat((all_tokens, new_tokens), dim=1)
+        all_tokens = tokens
 
-    return all_tokens
+        while not finished:
+            finished, new_tokens, decoder_outputs = model_wrapper.generate(
+                encoder_inputs=input_ids["input_ids"],
+                encoder_attention_mask=input_ids["attention_mask"],
+                reset_state=False,
+                past_decoder_outputs=decoder_outputs
+            )
+            all_tokens = torch.cat((all_tokens, new_tokens), dim=1)
+
+        return all_tokens
 
 
 def test_encoder_decoder_export(model_name="Helsinki-NLP/opus-mt-en-fr"):
@@ -222,7 +216,7 @@ def test_batched_generation(model_name="Helsinki-NLP/opus-mt-en-fr"):
         )
 
 
-def test_ones_cache_generation(model_name="Helsinki-NLP/opus-mt-en-fr"):
+def test_sentence_fragment_cache_generation(model_name="Helsinki-NLP/opus-mt-en-fr"):
     """Test that generation works correctly when the static cache is initialized with ones."""
     max_generation_length = 40
     batch_size = 2
@@ -230,16 +224,8 @@ def test_ones_cache_generation(model_name="Helsinki-NLP/opus-mt-en-fr"):
 
     # Use shared setup and then modify cache
     model_wrapper = setup_wrapper(model, max_batch_size=batch_size)
-    
-    # Set all cache buffers to ones
-    for cache in [model_wrapper.cache.self_attention_cache, model_wrapper.cache.cross_attention_cache]:
-        for key_cache, value_cache in zip(cache.key_cache, cache.value_cache):
-            key_cache.fill_(1.0)
-            value_cache.fill_(1.0)
 
-    model_wrapper.decoded_outputs.fill_(1.0)
-
-    # Test with multiple inputs to ensure batch processing works with ones cache
+    # Test with multiple inputs to ensure batch processing.
     test_inputs = [
         "This is a ", #short fragment for validating attention mask.
         "Another test sentence for verification of ones in the cache."
@@ -271,7 +257,7 @@ def test_ones_cache_generation(model_name="Helsinki-NLP/opus-mt-en-fr"):
         )
 
 
-def manual_test_compiled_generation(model_name="Helsinki-NLP/opus-mt-en-fr"):
+def test_compiled_generation(model_name="Helsinki-NLP/opus-mt-en-fr"):
     """Test that generation works correctly with torch.compile."""
     max_generation_length = 50
     model, tokenizer = setup_model_and_tokenizer(model_name, max_generation_length)
@@ -292,30 +278,16 @@ def manual_test_compiled_generation(model_name="Helsinki-NLP/opus-mt-en-fr"):
     compiled_text = tokenizer.decode(compiled_tokens[0], skip_special_tokens=False)
     print(f"Wrapper output (compiled): {compiled_text}")
 
-    # assert (
-    #     compiled_text == reference_text
-    # ), f"Expected: {reference_text}\nGot: {compiled_text}"
-
-    # # Test with a different input to ensure compilation works consistently
-    # test_input_2 = ["This is another test sentence to verify compilation works consistently."]
-    # input_ids_2 = tokenizer(test_input_2, return_tensors="pt", padding=True)
-    
-    # reference_tokens_2 = generate_with_wrapper(model_wrapper, input_ids_2, compile=False)
-    # reference_text_2 = tokenizer.decode(reference_tokens_2[0], skip_special_tokens=False)
-    
-    # compiled_tokens_2 = generate_with_wrapper(model_wrapper, input_ids_2, compile=True)
-    # compiled_text_2 = tokenizer.decode(compiled_tokens_2[0], skip_special_tokens=False)
-    
-    # assert (
-    #     compiled_text_2 == reference_text_2
-    # ), f"Expected (2nd input): {reference_text_2}\nGot: {compiled_text_2}"
+    assert (
+        compiled_text == reference_text
+    ), f"Expected: {reference_text}\nGot: {compiled_text}"
 
 
 if __name__ == "__main__":
-    test_encoder_decoder_export()
+    # test_encoder_decoder_export()
     # test_max_length_completion()
     # test_eos_token_completion()
     # test_batched_generation()
     # test_ones_cache_generation()
-    # test_compiled_generation()
+    test_compiled_generation()
     pass

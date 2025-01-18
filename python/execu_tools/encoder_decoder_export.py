@@ -114,6 +114,14 @@ class EncoderDecoderWrapper(torch.nn.Module):
         
         return finished, next_tokens.unsqueeze(1), decoder_outputs
 
+    def _process_logits(self, prev_decoder_outputs, next_token_logits):
+        """Process the logits from the decoder output using the prepared logits processor."""
+        # get the next token logits and process them
+        next_token_scores = self.prepared_logits_processor(
+            prev_decoder_outputs, next_token_logits
+        )
+        return next_token_scores
+
     def run_decoder(
         self, encoder_outputs, encoder_attention_mask, decoder_inputs, cache_position: torch.Tensor, prev_decoder_outputs
     ) -> dict:
@@ -134,11 +142,9 @@ class EncoderDecoderWrapper(torch.nn.Module):
             return_dict=True,
         )
 
-        # get the next token logits and process them
+        # Process logits using the new helper function
         next_token_logits = decoder_output.logits[:, -1, :].clone().float()
-        next_token_scores = self.prepared_logits_processor(
-            prev_decoder_outputs, next_token_logits
-        )
+        next_token_scores = self._process_logits(prev_decoder_outputs, next_token_logits)
 
         finished, next_tokens, decoder_outputs = self._process_next_tokens(
             batch_size, cache_position, next_token_scores, prev_decoder_outputs
