@@ -89,13 +89,17 @@ class EncoderDecoderWrapper(torch.nn.Module):
             ),
         )
 
-    def _process_next_tokens(self, batch_size, cache_position, next_token_scores, prev_decoder_outputs):
+    def _process_next_tokens(
+        self, batch_size, cache_position, next_token_scores, prev_decoder_outputs
+    ):
         # greedy search
         next_tokens = torch.argmax(next_token_scores, dim=-1)
-        
+
         # Create new decoder outputs by concatenating previous outputs with next tokens
-        decoder_outputs = torch.cat([prev_decoder_outputs, next_tokens.unsqueeze(1)], dim=1)
-        
+        decoder_outputs = torch.cat(
+            [prev_decoder_outputs, next_tokens.unsqueeze(1)], dim=1
+        )
+
         # handle stopping criteria
         if self.has_eos_stopping_criteria:
             next_tokens = (
@@ -104,14 +108,11 @@ class EncoderDecoderWrapper(torch.nn.Module):
                 * (1 - self.unfinished_sequences[:batch_size])
             )[:batch_size]
 
-        self.unfinished_sequences[:batch_size] = (
-            self.unfinished_sequences[:batch_size]
-            & ~self.prepared_stopping_criteria(
-                decoder_outputs, next_token_scores
-            )
-        )
+        self.unfinished_sequences[:batch_size] = self.unfinished_sequences[
+            :batch_size
+        ] & ~self.prepared_stopping_criteria(decoder_outputs, next_token_scores)
         finished = self.unfinished_sequences.max() == 0
-        
+
         return finished, next_tokens.unsqueeze(1), decoder_outputs
 
     def _process_logits(self, prev_decoder_outputs, next_token_logits):
@@ -123,7 +124,12 @@ class EncoderDecoderWrapper(torch.nn.Module):
         return next_token_scores
 
     def run_decoder(
-        self, encoder_outputs, encoder_attention_mask, decoder_inputs, cache_position: torch.Tensor, prev_decoder_outputs
+        self,
+        encoder_outputs,
+        encoder_attention_mask,
+        decoder_inputs,
+        cache_position: torch.Tensor,
+        prev_decoder_outputs,
     ) -> dict:
         batch_size, seqlen = decoder_inputs.shape
         attn_mask = (
@@ -144,20 +150,17 @@ class EncoderDecoderWrapper(torch.nn.Module):
 
         # Process logits using the new helper function
         next_token_logits = decoder_output.logits[:, -1, :].clone().float()
-        next_token_scores = self._process_logits(prev_decoder_outputs, next_token_logits)
+        next_token_scores = self._process_logits(
+            prev_decoder_outputs, next_token_logits
+        )
 
         finished, next_tokens, decoder_outputs = self._process_next_tokens(
             batch_size, cache_position, next_token_scores, prev_decoder_outputs
         )
-        
+
         return finished, next_tokens, decoder_outputs
 
-    def generate(
-        self, encoder_inputs, encoder_attention_mask, reset_state: bool = True, past_decoder_outputs=None
-    ):
-
-        # call encoder forward:
-        # if this is the first call:
+    def forward(self, encoder_inputs, encoder_attention_mask, past_decoder_outputs):
         batch_size, encoder_sequence_length = encoder_inputs.shape
 
         if encoder_sequence_length > self.encoder_output.shape[1]:
@@ -167,14 +170,22 @@ class EncoderDecoderWrapper(torch.nn.Module):
         if batch_size > self.encoder_output.shape[0]:
             raise ValueError("Batch size is greater than the max batch size")
 
-        if reset_state:
-            self.cache.reset()
+        # # if we are doing the first call, reset the cache:
+        if past_decoder_outputs.shape[1] == 0:
+            # reset the encoder output:
+            self.encoder_output.fill_(0)
 
-            # reset the unfinished sequences, up to our current batch size:
+            # # reset the cache:
+            self.cache.reset()
+            self.cache_position.fill_(0)
+            self.next_tokens.fill_(0)
+
+            # # elements outside of the batch size are set to 0: (may not be needed)
             self.unfinished_sequences.fill_(0)
-            self.unfinished_sequences[:batch_size] = torch.ones(
-                batch_size, dtype=torch.long
+            narrowed_unfinished_sequences = torch.narrow(
+                self.unfinished_sequences, 0, 0, batch_size
             )
+            narrowed_unfinished_sequences.fill_(1)
 
             encoder = self.model.get_encoder()
             encoder_dict = encoder(
@@ -198,16 +209,18 @@ class EncoderDecoderWrapper(torch.nn.Module):
             )
 
             # Initialize past_decoder_outputs for the first token
-            if past_decoder_outputs.shape[1] == 0:
-                past_decoder_outputs = decoder_inputs
+            past_decoder_outputs = decoder_inputs
 
             finished, next_tokens, decoder_outputs = self.run_decoder(
-                encoder_model_output, encoder_attention_mask, decoder_inputs, 
-                prefill_positions, past_decoder_outputs
+                encoder_model_output,
+                encoder_attention_mask,
+                decoder_inputs,
+                prefill_positions,
+                past_decoder_outputs,
             )
 
-            self.cache_position = prefill_positions[-1:] + 1
-            self.next_tokens = next_tokens
+            self.cache_position.add_(prefill_len)
+            self.next_tokens[:batch_size, :] = next_tokens
 
             new_tokens = torch.cat((past_decoder_outputs, next_tokens), dim=1)
             return finished, new_tokens, decoder_outputs
@@ -220,13 +233,16 @@ class EncoderDecoderWrapper(torch.nn.Module):
                 ]
             )
 
-            decoder_inputs = self.next_tokens
+            decoder_inputs = self.next_tokens[:batch_size, :]
             finished, next_tokens, decoder_outputs = self.run_decoder(
-                encoder_model_output, encoder_attention_mask, decoder_inputs, 
-                self.cache_position, past_decoder_outputs
+                encoder_model_output,
+                encoder_attention_mask,
+                decoder_inputs,
+                self.cache_position,
+                past_decoder_outputs,
             )
-            self.cache_position += 1
-            self.next_tokens = next_tokens
+            self.cache_position.add_(1)
+            self.next_tokens[:batch_size, :] = next_tokens
             new_tokens = next_tokens
 
             return finished, new_tokens, decoder_outputs
