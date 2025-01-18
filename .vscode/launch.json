@@ -5,18 +5,26 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "model_export",
+            "name": "manual_encoder_decoder_export",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/python/tests/test_model_export.py",
+            "program": "${workspaceFolder}/python/tests/manual_encoder_decoder_export.py",
             "console": "integratedTerminal",
             "justMyCode": false
         },
         {
-            "name": "model_encoder_decoder_export",
+            "name": "test_encoder_decoder_export",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/python/tests/test_encoder_decoder_export.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "test_export_behavior",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/python/tests/test_export_behavior.py",
             "console": "integratedTerminal",
             "justMyCode": false
         },
