@@ -53,22 +53,20 @@ def generate_with_wrapper(model_wrapper, input_ids, set_ones_after_reset=False, 
     """Run generation with the wrapper until completion."""
     with torch.no_grad():
         if compile:
-            model_wrapper.generate = torch.compile(model_wrapper.generate, mode="reduce-overhead",fullgraph=True)
+            model_wrapper.forward = torch.compile(model_wrapper.forward, mode="reduce-overhead",fullgraph=True)
 
         finished = False
-        finished, tokens, decoder_outputs = model_wrapper.generate(
+        finished, tokens, decoder_outputs = model_wrapper.forward(
             encoder_inputs=input_ids["input_ids"],
             encoder_attention_mask=input_ids["attention_mask"],
-            reset_state=True,
             past_decoder_outputs=torch.tensor([[]])
         )
         all_tokens = tokens
 
         while not finished:
-            finished, new_tokens, decoder_outputs = model_wrapper.generate(
+            finished, new_tokens, decoder_outputs = model_wrapper.forward(
                 encoder_inputs=input_ids["input_ids"],
                 encoder_attention_mask=input_ids["attention_mask"],
-                reset_state=False,
                 past_decoder_outputs=decoder_outputs
             )
             all_tokens = torch.cat((all_tokens, new_tokens), dim=1)

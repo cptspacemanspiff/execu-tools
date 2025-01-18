@@ -171,7 +171,7 @@ class EncoderDecoderWrapper(torch.nn.Module):
             raise ValueError("Batch size is greater than the max batch size")
 
         # # if we are doing the first call, reset the cache:
-        if past_decoder_outputs.shape[1] == 0:
+        if past_decoder_outputs.shape[1] ==0:
             # reset the encoder output:
             self.encoder_output.fill_(0)
 
@@ -192,13 +192,14 @@ class EncoderDecoderWrapper(torch.nn.Module):
                 input_ids=encoder_inputs,
                 attention_mask=encoder_attention_mask,
             )
-            self.encoder_output[:batch_size, :encoder_sequence_length, :] = (
-                encoder_dict["last_hidden_state"]
-            )
+
+            narrowed_encoder_output = torch.narrow(
+                self.encoder_output, 0, 0, batch_size
+            ).narrow(1, 0, encoder_sequence_length)
+            narrowed_encoder_output = encoder_dict["last_hidden_state"]
+
             encoder_model_output = BaseModelOutput(
-                last_hidden_state=self.encoder_output[
-                    :batch_size, :encoder_sequence_length, :
-                ]
+                last_hidden_state=narrowed_encoder_output
             )
 
             # We are doing prefill:
@@ -209,40 +210,35 @@ class EncoderDecoderWrapper(torch.nn.Module):
             )
 
             # Initialize past_decoder_outputs for the first token
+
             past_decoder_outputs = decoder_inputs
 
             finished, next_tokens, decoder_outputs = self.run_decoder(
-                encoder_model_output,
-                encoder_attention_mask,
-                decoder_inputs,
-                prefill_positions,
-                past_decoder_outputs,
+                encoder_model_output, encoder_attention_mask, decoder_inputs,
+                prefill_positions, past_decoder_outputs
             )
 
             self.cache_position.add_(prefill_len)
-            self.next_tokens[:batch_size, :] = next_tokens
+            torch.narrow(self.next_tokens, 0, 0, batch_size).copy_(next_tokens)
 
             new_tokens = torch.cat((past_decoder_outputs, next_tokens), dim=1)
             return finished, new_tokens, decoder_outputs
 
         else:
             # we are doing decode:
+
+            narrowed_encoder_output = torch.narrow(self.encoder_output, 0, 0, batch_size).narrow(1, 0, encoder_sequence_length)
             encoder_model_output = BaseModelOutput(
-                last_hidden_state=self.encoder_output[
-                    :batch_size, :encoder_sequence_length, :
-                ]
+                last_hidden_state=narrowed_encoder_output
             )
 
-            decoder_inputs = self.next_tokens[:batch_size, :]
+            decoder_inputs = torch.narrow(self.next_tokens,0,0,batch_size)
             finished, next_tokens, decoder_outputs = self.run_decoder(
-                encoder_model_output,
-                encoder_attention_mask,
-                decoder_inputs,
-                self.cache_position,
-                past_decoder_outputs,
+                encoder_model_output, encoder_attention_mask, decoder_inputs,
+                self.cache_position, past_decoder_outputs
             )
             self.cache_position.add_(1)
-            self.next_tokens[:batch_size, :] = next_tokens
+            torch.narrow(self.next_tokens,0,0,batch_size).copy_(next_tokens)
             new_tokens = next_tokens
 
-            return finished, new_tokens, decoder_outputs
+            return  finished, new_tokens, decoder_outputs
