@@ -99,13 +99,13 @@ class EncoderDecoderWrapper(torch.nn.Module):
         # handle stopping criteria
         if self.has_eos_stopping_criteria:
             next_tokens = (
-                next_tokens * self.unfinished_sequences
+                next_tokens * self.unfinished_sequences[:batch_size]
                 + self.generation_config._pad_token_tensor
-                * (1 - self.unfinished_sequences)
+                * (1 - self.unfinished_sequences[:batch_size])
             )[:batch_size]
 
-        self.unfinished_sequences = (
-            self.unfinished_sequences
+        self.unfinished_sequences[:batch_size] = (
+            self.unfinished_sequences[:batch_size]
             & ~self.prepared_stopping_criteria(
                 decoder_outputs, next_token_scores
             )

@@ -219,7 +219,7 @@ def test_batched_generation(model_name="Helsinki-NLP/opus-mt-en-fr"):
 def test_sentence_fragment_cache_generation(model_name="Helsinki-NLP/opus-mt-en-fr"):
     """Test that generation works correctly when the static cache is initialized with ones."""
     max_generation_length = 40
-    batch_size = 2
+    batch_size = 4 #differs from input batch size to test batching.
     model, tokenizer = setup_model_and_tokenizer(model_name, max_generation_length)
 
     # Use shared setup and then modify cache
@@ -238,7 +238,7 @@ def test_sentence_fragment_cache_generation(model_name="Helsinki-NLP/opus-mt-en-
         tokenizer.decode(output, skip_special_tokens=False)
         for output in reference_outputs
     ]
-    print(f"Reference outputs with normal cache: {reference_texts}")
+    print(f"Reference outputs: {reference_texts}")
 
     # Test wrapper implementation with ones cache
     all_tokens = generate_with_wrapper(model_wrapper, input_ids, set_ones_after_reset=False)
@@ -246,7 +246,7 @@ def test_sentence_fragment_cache_generation(model_name="Helsinki-NLP/opus-mt-en-
         tokenizer.decode(tokens, skip_special_tokens=False)
         for tokens in all_tokens
     ]
-    print(f"Wrapper outputs with ones cache: {wrapper_texts}")
+    print(f"Wrapper outputs: {wrapper_texts}")
 
     # Check that each sequence in the batch matches the reference
     for i, (wrapper_text, reference_text) in enumerate(zip(wrapper_texts, reference_texts)):
@@ -283,11 +283,57 @@ def test_compiled_generation(model_name="Helsinki-NLP/opus-mt-en-fr"):
     ), f"Expected: {reference_text}\nGot: {compiled_text}"
 
 
+def test_compiled_generation_batch_mismatch(model_name="Helsinki-NLP/opus-mt-en-fr"):
+    """Test that compiled generation works correctly with batch size smaller than cache max batch size."""
+    max_generation_length = 25
+    cache_batch_size = 4  # Larger max batch size for cache
+    input_batch_size = 2  # Smaller actual input batch size
+    model, tokenizer = setup_model_and_tokenizer(model_name, max_generation_length)
+
+    test_inputs = [
+        "The quick brown fox jumps over the lazy dog.",
+        "Python is a great programming language.",
+    ]
+    input_ids = tokenizer(test_inputs, return_tensors="pt", padding=True)
+
+    # Create wrapper with larger max batch size
+    model_wrapper = setup_wrapper(model, max_batch_size=cache_batch_size)
+
+    # Get reference output from uncompiled model
+    reference_tokens = generate_with_wrapper(model_wrapper, input_ids, compile=False)
+    reference_texts = [
+        tokenizer.decode(tokens, skip_special_tokens=False)
+        for tokens in reference_tokens
+    ]
+    print(f"Reference outputs (uncompiled): {reference_texts}")
+
+    # Test with compiled generate function
+    compiled_tokens = generate_with_wrapper(model_wrapper, input_ids, compile=True)
+    compiled_texts = [
+        tokenizer.decode(tokens, skip_special_tokens=False)
+        for tokens in compiled_tokens
+    ]
+    print(f"Wrapper outputs (compiled): {compiled_texts}")
+
+    # Check that each sequence in the batch matches the reference
+    for i, (compiled_text, reference_text) in enumerate(zip(compiled_texts, reference_texts)):
+        assert compiled_text == reference_text, (
+            f"Batch item {i} mismatch:\n"
+            f"Expected: {reference_text}\n"
+            f"Got: {compiled_text}"
+        )
+
+    # Verify batch sizes
+    assert input_ids["input_ids"].shape[0] == input_batch_size, "Input batch size mismatch"
+    assert compiled_tokens.shape[0] == input_batch_size, "Output batch size mismatch"
+
+
 if __name__ == "__main__":
     # test_encoder_decoder_export()
     # test_max_length_completion()
     # test_eos_token_completion()
     # test_batched_generation()
-    # test_ones_cache_generation()
-    test_compiled_generation()
+    test_sentence_fragment_cache_generation()
+    # test_compiled_generation()
+    # test_compiled_generation_batch_mismatch()
     pass
