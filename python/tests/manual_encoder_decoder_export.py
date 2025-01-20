@@ -55,17 +55,17 @@ def export_model():
     # Define dynamic dimensions
     batch_dim = Dim("batch_size", min=1, max=max_batch_size)
     encoder_seq_len_dim = Dim("encoder_seq_length", min=1, max=max_cache_len_encoder)
-    decoder_seq_len_dim = Dim("decoder_seq_length", min=0, max=max_cache_len_decoder)
+    decoder_seq_len_dim = Dim("decoder_seq_length", min=1, max=max_cache_len_decoder)
     
     # Create example inputs for tracing with dynamic dimensions
-    example_inputs = {
+    reset_encode_prefill_example_inputs = {
         "encoder_inputs": (input_ids["input_ids"], {0: batch_dim, 1: encoder_seq_len_dim}),
         "encoder_attention_mask": (input_ids["attention_mask"], {0: batch_dim, 1: encoder_seq_len_dim}),
-        "past_decoder_outputs": (torch.zeros(input_ids["input_ids"].shape[0], 2), {0: batch_dim, 1: decoder_seq_len_dim}) # must have same batch size as encoder inputs
+        "prefill_prompt": (model_wrapper.format_prompt(),{})
     }
 
     # Register the forward method with dynamic dimensions
-    exporter.register(model_wrapper.reset_encode_prefill, **example_inputs)
+    exporter.register(model_wrapper.reset_encode_prefill, **reset_encode_prefill_example_inputs)
 
     # Export the model through different stages
     exported_model = exporter.export()
