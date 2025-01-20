@@ -2,7 +2,7 @@ import torch
 from torch.export import export, ExportedProgram
 from torch.export.dynamic_shapes import Dim
 
-class TestBranchingModel(torch.nn.Module):
+class BranchingModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
 
@@ -67,7 +67,7 @@ class TestBranchingModel(torch.nn.Module):
 
 def test_branching_export():
     # Create model and exporter
-    model = TestBranchingModel()
+    model = BranchingModel()
     original_output = model(torch.ones(3))
     # Register the forward method with example input
     example_input = torch.ones(3)
@@ -80,6 +80,8 @@ def test_branching_export():
         strict=False,
     )
 
+
+    print(method_graph.graph.print_tabular())
     # Test different batch sizes
     test_cases = [
         torch.ones(0),  # empty batch
