@@ -2,6 +2,8 @@ import torch
 from torch.export import export, ExportedProgram
 from torch.export.dynamic_shapes import Dim
 
+from executorch.exir import to_edge
+
 class BranchingModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -80,7 +82,6 @@ def test_branching_export():
         strict=False,
     )
 
-
     print(method_graph.graph.print_tabular())
     # Test different batch sizes
     test_cases = [
@@ -106,6 +107,10 @@ def test_branching_export():
             f"eager={eager_output}, exported={exported_output}"
         )
 
+    # export to edge -> does not work b/c torch.cond canoot return aliased inputs
+    # edge_model = to_edge(method_graph)
+    # print(edge_model)
 
 if __name__ == "__main__":
     test_branching_export()
+
