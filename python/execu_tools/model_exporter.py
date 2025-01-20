@@ -167,10 +167,10 @@ class Exporter:
 
     def register(self, fn, **kwargs):
         # validate that the function is a method of the module.
-        # if fn.__qualname__.split(".")[0] != self.model.__class__.__name__:
-        #     raise ValueError(
-        #         f"Function {fn.__name__} is not a method of {self.model.__class__.__name__}"
-        #     )
+        if getattr(self.model.__class__, fn.__name__, None) is None:
+            raise ValueError(
+                f"Function {fn.__name__} is not a method of {self.model.__class__.__name__}"
+            )
         self.registered_method_dict[fn.__name__] = (fn, kwargs)
 
     def register_shared_buffer(self, fqn: str):
@@ -258,7 +258,6 @@ class Exporter:
                             # parameter has been registered:
                             if type(param_value) is not tuple:
                                 example_args[param] = param_value
-
                             else:
                                 # we got a tuple
                                 example_args[param] = param_value[0]

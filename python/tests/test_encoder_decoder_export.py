@@ -49,22 +49,23 @@ def setup_wrapper(
     return EncoderDecoderWrapper(model, cache)
 
 
-def generate_with_wrapper(model_wrapper, input_ids, set_ones_after_reset=False, compile=False):
+def generate_with_wrapper(model_wrapper : EncoderDecoderWrapper, input_ids, set_ones_after_reset=False, compile=False):
     """Run generation with the wrapper until completion."""
     with torch.no_grad():
         if compile:
-            model_wrapper.forward = torch.compile(model_wrapper.forward, mode="reduce-overhead",fullgraph=True)
+            model_wrapper.reset_encode_prefill = torch.compile(model_wrapper.reset_encode_prefill, mode="reduce-overhead",fullgraph=True)
+            model_wrapper.decode = torch.compile(model_wrapper.decode, mode="reduce-overhead",fullgraph=True)
 
         finished = False
-        finished, tokens, decoder_outputs = model_wrapper.forward(
+        finished, tokens, decoder_outputs = model_wrapper.reset_encode_prefill(
             encoder_inputs=input_ids["input_ids"],
             encoder_attention_mask=input_ids["attention_mask"],
-            past_decoder_outputs=torch.tensor([[]])
+            prefill_prompt=model_wrapper.format_prompt()
         )
         all_tokens = tokens
 
         while not finished:
-            finished, new_tokens, decoder_outputs = model_wrapper.forward(
+            finished, new_tokens, decoder_outputs = model_wrapper.decode(
                 encoder_inputs=input_ids["input_ids"],
                 encoder_attention_mask=input_ids["attention_mask"],
                 past_decoder_outputs=decoder_outputs

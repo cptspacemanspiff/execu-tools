@@ -65,7 +65,7 @@ def export_model():
     }
 
     # Register the forward method with dynamic dimensions
-    exporter.register(model_wrapper.forward, **example_inputs)
+    exporter.register(model_wrapper.reset_encode_prefill, **example_inputs)
 
     # Export the model through different stages
     exported_model = exporter.export()

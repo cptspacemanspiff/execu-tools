@@ -51,7 +51,6 @@ class EncoderDecoderWrapper(torch.nn.Module):
 
         # register a buffer to manage the unfinished sequences:
         # number of sequences is at mac the cache batch dimension:
-
         self.register_buffer(
             "unfinished_sequences", torch.ones(max_batch_size, dtype=torch.long)
         )
@@ -88,6 +87,11 @@ class EncoderDecoderWrapper(torch.nn.Module):
                 )
             ),
         )
+
+    def format_prompt(self, prompt=None):
+        # idea is to format the prompt in a standard way, TODO: reevaluate this.
+        # Marian models just have start of string token, so we just return that.
+        return self.generation_config._decoder_start_token_tensor.unsqueeze(0)
 
     def _process_next_tokens(
         self, batch_size, cache_position, next_token_scores, prev_decoder_outputs
@@ -160,7 +164,12 @@ class EncoderDecoderWrapper(torch.nn.Module):
 
         return finished, next_tokens, decoder_outputs
 
-    def forward(self, encoder_inputs, encoder_attention_mask, past_decoder_outputs):
+    def reset_encode_prefill(
+        self,
+        encoder_inputs: torch.Tensor,
+        encoder_attention_mask: torch.Tensor,
+        prefill_prompt: torch.Tensor,
+    ):
         batch_size, encoder_sequence_length = encoder_inputs.shape
 
         if encoder_sequence_length > self.encoder_output.shape[1]:
@@ -170,75 +179,92 @@ class EncoderDecoderWrapper(torch.nn.Module):
         if batch_size > self.encoder_output.shape[0]:
             raise ValueError("Batch size is greater than the max batch size")
 
-        # # if we are doing the first call, reset the cache:
-        if past_decoder_outputs.shape[1] ==0:
-            # reset the encoder output:
-            self.encoder_output.fill_(0)
-
-            # # reset the cache:
-            self.cache.reset()
-            self.cache_position.fill_(0)
-            self.next_tokens.fill_(0)
-
-            # # elements outside of the batch size are set to 0: (may not be needed)
-            self.unfinished_sequences.fill_(0)
-            narrowed_unfinished_sequences = torch.narrow(
-                self.unfinished_sequences, 0, 0, batch_size
-            )
-            narrowed_unfinished_sequences.fill_(1)
-
-            encoder = self.model.get_encoder()
-            encoder_dict = encoder(
-                input_ids=encoder_inputs,
-                attention_mask=encoder_attention_mask,
+        if len(prefill_prompt.shape) != 1:
+            raise ValueError(
+                "Prefill prompt must be a 1D tensor (prompt must be the same for all items in the batch)"
             )
 
-            narrowed_encoder_output = torch.narrow(
-                self.encoder_output, 0, 0, batch_size
-            ).narrow(1, 0, encoder_sequence_length)
-            narrowed_encoder_output = encoder_dict["last_hidden_state"]
+        # reset the encoder output:
+        self.encoder_output.fill_(0)
 
-            encoder_model_output = BaseModelOutput(
-                last_hidden_state=narrowed_encoder_output
+        # # reset the cache:
+        self.cache.reset()
+        self.cache_position.fill_(0)
+        self.next_tokens.fill_(0)
+
+        # # elements outside of the batch size are set to 0: (may not be needed)
+        self.unfinished_sequences.fill_(0)
+        narrowed_unfinished_sequences = torch.narrow(
+            self.unfinished_sequences, 0, 0, batch_size
+        )
+        narrowed_unfinished_sequences.fill_(1)
+
+        encoder = self.model.get_encoder()
+        encoder_dict = encoder(
+            input_ids=encoder_inputs,
+            attention_mask=encoder_attention_mask,
+        )
+
+        narrowed_encoder_output = torch.narrow(
+            self.encoder_output, 0, 0, batch_size
+        ).narrow(1, 0, encoder_sequence_length)
+        narrowed_encoder_output = encoder_dict["last_hidden_state"]
+
+        encoder_model_output = BaseModelOutput(
+            last_hidden_state=narrowed_encoder_output
+        )
+
+        # We are doing prefill:
+        prefill_len = prefill_prompt.shape[0]
+        prefill_positions = (
+            torch.ones_like(prefill_prompt, dtype=torch.int64).cumsum(0) - 1
+        )
+        decoder_inputs = prefill_prompt.repeat(batch_size, 1)
+
+        # Initialize past_decoder_outputs for the first token
+        past_decoder_outputs = decoder_inputs
+
+        finished, next_tokens, decoder_outputs = self.run_decoder(
+            encoder_model_output,
+            encoder_attention_mask,
+            decoder_inputs,
+            prefill_positions,
+            past_decoder_outputs,
+        )
+
+        self.cache_position.add_(prefill_len)
+        torch.narrow(self.next_tokens, 0, 0, batch_size).copy_(next_tokens)
+
+        new_tokens = torch.cat((past_decoder_outputs, next_tokens), dim=1)
+        return finished, new_tokens, decoder_outputs
+
+    def decode(self, encoder_inputs, encoder_attention_mask, past_decoder_outputs):
+        batch_size, encoder_sequence_length = encoder_inputs.shape
+
+        if encoder_sequence_length > self.encoder_output.shape[1]:
+            raise ValueError(
+                "Encoder sequence length is greater than the max encoder sequence length"
             )
+        if batch_size > self.encoder_output.shape[0]:
+            raise ValueError("Batch size is greater than the max batch size")
 
-            # We are doing prefill:
-            prefill_len = 1
-            prefill_positions = torch.arange(prefill_len)
-            decoder_inputs = torch.tensor(
-                [[self.generation_config._decoder_start_token_tensor]] * batch_size
-            )
+        narrowed_encoder_output = torch.narrow(
+            self.encoder_output, 0, 0, batch_size
+        ).narrow(1, 0, encoder_sequence_length)
+        encoder_model_output = BaseModelOutput(
+            last_hidden_state=narrowed_encoder_output
+        )
 
-            # Initialize past_decoder_outputs for the first token
+        decoder_inputs = torch.narrow(self.next_tokens, 0, 0, batch_size)
+        finished, next_tokens, decoder_outputs = self.run_decoder(
+            encoder_model_output,
+            encoder_attention_mask,
+            decoder_inputs,
+            self.cache_position,
+            past_decoder_outputs,
+        )
+        self.cache_position.add_(1)
+        torch.narrow(self.next_tokens, 0, 0, batch_size).copy_(next_tokens)
+        new_tokens = next_tokens
 
-            past_decoder_outputs = decoder_inputs
-
-            finished, next_tokens, decoder_outputs = self.run_decoder(
-                encoder_model_output, encoder_attention_mask, decoder_inputs,
-                prefill_positions, past_decoder_outputs
-            )
-
-            self.cache_position.add_(prefill_len)
-            torch.narrow(self.next_tokens, 0, 0, batch_size).copy_(next_tokens)
-
-            new_tokens = torch.cat((past_decoder_outputs, next_tokens), dim=1)
-            return finished, new_tokens, decoder_outputs
-
-        else:
-            # we are doing decode:
-
-            narrowed_encoder_output = torch.narrow(self.encoder_output, 0, 0, batch_size).narrow(1, 0, encoder_sequence_length)
-            encoder_model_output = BaseModelOutput(
-                last_hidden_state=narrowed_encoder_output
-            )
-
-            decoder_inputs = torch.narrow(self.next_tokens,0,0,batch_size)
-            finished, next_tokens, decoder_outputs = self.run_decoder(
-                encoder_model_output, encoder_attention_mask, decoder_inputs,
-                self.cache_position, past_decoder_outputs
-            )
-            self.cache_position.add_(1)
-            torch.narrow(self.next_tokens,0,0,batch_size).copy_(next_tokens)
-            new_tokens = next_tokens
-
-            return  finished, new_tokens, decoder_outputs
+        return finished, new_tokens, decoder_outputs
