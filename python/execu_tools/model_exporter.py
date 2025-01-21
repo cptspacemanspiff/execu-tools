@@ -424,19 +424,19 @@ class Exporter:
         if et_record:
             save_path = dir / (name + ".etrecord")
             # TODO fix the requirement that the edge program is not None.
-            # generate_etrecord(
-            #     save_path,
-            #     None,
-            #     self.executorch_program,
-            #     {model_name: self.edge_program_copy},
-            # )
+            generate_etrecord(
+                save_path,
+                None,
+                self.executorch_program,
+                {model_name: self.edge_program_copy},
+            )
 
         if memory_trace:
             for method in self.executorch_program.methods:
                 output_file = dir / f"{model_name}-{method}-memory_profile.json"
-                # generate_memory_trace(
-                #     executorch_program_manager=self.executorch_program,
-                #     chrome_trace_filename=output_file,
-                #     enable_memory_offsets=True,
-                #     method_name=method,
-                # )
+                generate_memory_trace(
+                    executorch_program_manager=self.executorch_program,
+                    chrome_trace_filename=output_file,
+                    enable_memory_offsets=True,
+                    method_name=method,
+                )

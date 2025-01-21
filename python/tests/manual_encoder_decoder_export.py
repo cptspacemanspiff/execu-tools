@@ -60,9 +60,9 @@ def export_model():
         
         # Create example inputs for tracing with dynamic dimensions
         export_example_reset_encode_prefill = {
-            "encoder_inputs": (torch.ones( 3, max_cache_len_encoder, dtype=torch.long), {0: batch_dim, 1: encoder_seq_len_dim}),
-            "encoder_attention_mask": (torch.ones(3,max_cache_len_encoder, dtype=torch.long), {0: batch_dim, 1: encoder_seq_len_dim}),
-            "prefill_prompt": (torch.ones(2, dtype=torch.long),{})
+            "encoder_inputs": (torch.ones( 4, max_cache_len_encoder, dtype=torch.long), {0: batch_dim, 1: encoder_seq_len_dim}),
+            "encoder_attention_mask": (torch.ones(4,max_cache_len_encoder, dtype=torch.long), {0: batch_dim, 1: encoder_seq_len_dim}),
+            "prefill_prompt": (model_wrapper.format_prompt(),{})
         }
 
         input_example_reset_encode_prefill = {
@@ -92,11 +92,11 @@ def export_model():
 
         exporter.to_edge()
         print(f"Successfully converted to edge")
-    # exporter.to_executorch()
-
-    # # Save the exported program
-    # output_dir = Path(__file__).parent / "export_artifacts"
-    # exporter.save(output_dir, "encoder_decoder_model")
+        exporter.to_executorch()
+        print(f"Successfully converted to executorch")
+        # # Save the exported program
+        output_dir = Path(__file__).parent / "export_artifacts"
+        exporter.save(output_dir, "encoder_decoder_model")
     
     # print("Model exported successfully to encoder_decoder_model.pte")
 
