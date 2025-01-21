@@ -58,7 +58,8 @@ def export_model():
         encoder_seq_len_dim = Dim("encoder_seq_length", min=1, max=max_cache_len_encoder) #TODO for some reason we cannot use the whole cross attention cache?
         decoder_seq_len_dim = Dim("decoder_seq_length", min=1, max=max_cache_len_decoder)
         
-        # Create example inputs for tracing with dynamic dimensions TODO: max batch size does not work.
+        # Create example inputs for tracing with dynamic dimensions 
+        # TODO: max batch size does not work.
         example_batch_size = max_batch_size-1 if max_batch_size > 1 else 1
         
         export_example_reset_encode_prefill = {
@@ -67,13 +68,26 @@ def export_model():
             "prefill_prompt": (model_wrapper.format_prompt(),{})
         }
 
+        export_example_decode = {
+            "encoder_inputs": (torch.ones( example_batch_size, max_cache_len_encoder, dtype=torch.long), {0: batch_dim, 1: encoder_seq_len_dim}),
+            "encoder_attention_mask": (torch.ones( example_batch_size, max_cache_len_encoder, dtype=torch.long), {0: batch_dim, 1: encoder_seq_len_dim}),
+            "past_decoder_outputs": (torch.zeros( example_batch_size, max_cache_len_decoder, dtype=torch.long), {0: batch_dim, 1: decoder_seq_len_dim}),
+        }
+
         input_example_reset_encode_prefill = {
             key: value[0] for key, value in export_example_reset_encode_prefill.items()
         }
         model_wrapper.reset_encode_prefill(**input_example_reset_encode_prefill)
 
-        # Register the forward method with dynamic dimensions
-        exporter.register(model_wrapper.reset_encode_prefill, **export_example_reset_encode_prefill)
+        input_example_decode = {
+            key: value[0] for key, value in export_example_decode.items()
+        }
+        model_wrapper.decode(**input_example_decode)
+
+        # Register the methods
+        # exporter.register(model_wrapper.reset_encode_prefill, **export_example_reset_encode_prefill)
+        exporter.register(model_wrapper.decode, **export_example_decode)
+
 
         # Export the model through different stages
         exported_model = exporter.export()

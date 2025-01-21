@@ -117,6 +117,7 @@ class EncoderDecoderWrapper(torch.nn.Module):
         ] & ~self.prepared_stopping_criteria(decoder_outputs, next_token_scores)
         finished = self.unfinished_sequences.max() == 0
 
+        # return None, None, None
         return finished, next_tokens.unsqueeze(1), decoder_outputs
 
     def _process_logits(self, prev_decoder_outputs, next_token_logits):
@@ -160,7 +161,7 @@ class EncoderDecoderWrapper(torch.nn.Module):
         finished, next_tokens, decoder_outputs = self._process_next_tokens(
             batch_size, cache_position, next_token_scores, prev_decoder_outputs
         )
-
+        # return None, None, None
         return finished, next_tokens, decoder_outputs
 
     def reset_encode_prefill(
