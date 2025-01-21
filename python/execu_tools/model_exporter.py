@@ -355,8 +355,8 @@ class Exporter:
         self.edge_program = edge_program
 
         # validate that the edge program is valid:
-        for key, method in self.edge_program._edge_programs.items():
-            method.graph.print_tabular()
+        # for key, method in self.edge_program._edge_programs.items():
+        #     method.graph.print_tabular()
 
         return edge_program
 

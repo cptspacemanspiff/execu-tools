@@ -132,21 +132,20 @@ class EncoderDecoderWrapper(torch.nn.Module):
         encoder_outputs,
         encoder_attention_mask,
         decoder_inputs,
+        decoder_attention_mask,
         cache_position: torch.Tensor,
         prev_decoder_outputs,
     ) -> dict:
         batch_size, seqlen = decoder_inputs.shape
-        attn_mask = (
-            self.decoder_attention_mask[cache_position, :seqlen]
-            if self.is_causal
-            else None
-        )
+
+        # since we are using kv-cache our attention mask should always be true?
+        # TODO: check if this is correct.
 
         decoder_output = self.model(
             encoder_outputs=encoder_outputs,
             attention_mask=encoder_attention_mask,
             decoder_input_ids=decoder_inputs,
-            decoder_attention_mask=attn_mask,
+            decoder_attention_mask=decoder_attention_mask,
             cache_position=cache_position,
             past_key_values=self.cache,
             return_dict=True,
@@ -219,15 +218,38 @@ class EncoderDecoderWrapper(torch.nn.Module):
         prefill_positions = (
             torch.ones_like(prefill_prompt, dtype=torch.int64).cumsum(0) - 1
         )
-        decoder_inputs = prefill_prompt.repeat(batch_size, 1)
+        decoder_inputs = prefill_prompt.unsqueeze(0).repeat(batch_size, 1)
 
         # Initialize past_decoder_outputs for the first token
         past_decoder_outputs = decoder_inputs
+
+        if self.is_causal:
+            # TODO: look at this to see if it is needed. (in this particular case, probably not.)
+            # in the general case, we need to use the cache position to find the
+            # current position in the mask, however in this particular case we
+            # know that tthe cache position is sequential and starts at zero,
+            # so the shape of cache position-1 is the same as cache position.
+            # start_pos = cache_position[-1].item()
+            # torch._check_is_size(start_pos)
+            # torch._check(start_pos < self.decoder_attention_mask.shape[0])
+            _attn_row = self.decoder_attention_mask.select(
+                0, prefill_positions.shape[0] - 1
+            )
+            decoder_attention_mask = _attn_row.narrow(
+                0, 0, prefill_positions.shape[0]
+            ).repeat(batch_size, 1)
+            # that being said, this should always be a matrix of true during prefill,
+            # so we can probably just use the mask directly.
+        else:
+            decoder_attention_mask = None
+
+        # decoder_attention_mask = None
 
         finished, next_tokens, decoder_outputs = self.run_decoder(
             encoder_model_output,
             encoder_attention_mask,
             decoder_inputs,
+            decoder_attention_mask,
             prefill_positions,
             past_decoder_outputs,
         )
@@ -260,6 +282,7 @@ class EncoderDecoderWrapper(torch.nn.Module):
             encoder_model_output,
             encoder_attention_mask,
             decoder_inputs,
+            None,
             self.cache_position,
             past_decoder_outputs,
         )

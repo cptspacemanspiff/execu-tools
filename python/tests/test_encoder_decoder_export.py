@@ -327,12 +327,63 @@ def test_compiled_generation_batch_mismatch(model_name="Helsinki-NLP/opus-mt-en-
     assert compiled_tokens.shape[0] == input_batch_size, "Output batch size mismatch"
 
 
+def test_compiled_generation_max_encoder_length(model_name="Helsinki-NLP/opus-mt-en-fr"):
+    """Test compilation behavior when encoder input length equals max cache length."""
+    max_generation_length = 25
+    max_encoder_length = 40  # We'll create input that matches this exactly
+    model, tokenizer = setup_model_and_tokenizer(model_name, max_generation_length)
+
+    # Create a long input sentence and truncate its tokens
+    long_input = [
+        "This is a very long input sentence that will be used to test the maximum encoder length. "
+        "We want to ensure that the model can handle inputs that exactly match the maximum allowed "
+        "sequence length for the encoder. This sentence contains many words and will definitely "
+        "tokenize to more tokens than we need, allowing us to truncate precisely."
+    ]
+    
+    # Tokenize without truncation first
+    initial_tokens = tokenizer(long_input, return_tensors="pt", padding=True)
+    
+    # Manually truncate to exact length
+    input_ids = {
+        "input_ids": initial_tokens["input_ids"][:, :max_encoder_length],
+        "attention_mask": initial_tokens["attention_mask"][:, :max_encoder_length]
+    }
+    
+    assert input_ids["input_ids"].shape[1] == max_encoder_length, (
+        f"Input length should be exactly {max_encoder_length}, "
+        f"got {input_ids['input_ids'].shape[1]}"
+    )
+
+    # Create wrapper with exact max encoder length
+    model_wrapper = setup_wrapper(
+        model,
+        max_cache_len_encoder=max_encoder_length,
+        max_cache_len_decoder=80
+    )
+
+    # Get reference output from uncompiled model
+    reference_tokens = generate_with_wrapper(model_wrapper, input_ids, compile=False)
+    reference_text = tokenizer.decode(reference_tokens[0], skip_special_tokens=False)
+    print(f"Reference output (uncompiled): {reference_text}")
+
+    # Test with compiled generate function
+    compiled_tokens = generate_with_wrapper(model_wrapper, input_ids, compile=True)
+    compiled_text = tokenizer.decode(compiled_tokens[0], skip_special_tokens=False)
+    print(f"Wrapper output (compiled): {compiled_text}")
+
+    assert (
+        compiled_text == reference_text
+    ), f"Expected: {reference_text}\nGot: {compiled_text}"
+
+
 if __name__ == "__main__":
     # test_encoder_decoder_export()
     # test_max_length_completion()
     # test_eos_token_completion()
     # test_batched_generation()
-    test_sentence_fragment_cache_generation()
+    # test_sentence_fragment_cache_generation()
     # test_compiled_generation()
     # test_compiled_generation_batch_mismatch()
+    test_compiled_generation_max_encoder_length()
     pass
