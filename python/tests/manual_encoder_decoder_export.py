@@ -58,7 +58,7 @@ def export_model():
         encoder_seq_len_dim = Dim("encoder_seq_length", min=1, max=max_cache_len_encoder) #TODO for some reason we cannot use the whole cross attention cache?
         decoder_seq_len_dim = Dim("decoder_seq_length", min=1, max=max_cache_len_decoder)
         
-        # Create example inputs for tracing with dynamic dimensions
+        # Create example inputs for tracing with dynamic dimensions TODO: max batch size does not work.
         example_batch_size = max_batch_size-1 if max_batch_size > 1 else 1
         
         export_example_reset_encode_prefill = {
