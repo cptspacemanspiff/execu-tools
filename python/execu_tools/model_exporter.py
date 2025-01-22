@@ -1,14 +1,14 @@
 # file that helps generate the exporter
 import copy
-from enum import Enum
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import MethodType
-from typing import Callable, Optional, Union
+from typing import Callable, Optional
 from operator import attrgetter
 import torch
 from torch.export import (
     export,
-    export_for_training,
+    Dim,
     ExportedProgram,
     ExportGraphSignature,
 )
@@ -16,20 +16,14 @@ from executorch.exir import to_edge, to_edge_transform_and_lower, EdgeProgramMan
 from executorch.exir import ExecutorchProgram, ExecutorchBackendConfig
 from executorch.exir.pass_base import PassResult
 from executorch.exir.passes.memory_planning_pass import MemoryPlanningPass, greedy
-from executorch.exir.memory_planning import materialize_buffer, _is_mutable_buffer
 from executorch.devtools.etrecord._etrecord import generate_etrecord
 from contextlib import contextmanager
 from torch._dynamo import assume_constant_result
 import inspect
 
-from executorch.exir.dynamic_shape import DynamicMemoryPlanningMode
-
-from executorch.exir.tensor import ALIGNMENT
-
 from executorch.devtools.etrecord._etrecord import ETRecord
-
 from executorch.util.activation_memory_profiler import generate_memory_trace
-
+from torch.export.dynamic_shapes import _Dim
 
 @contextmanager
 def patch_forward(obj: torch.nn.Module, new_method):
@@ -81,16 +75,11 @@ class SharedMemoryPlanningPass(MemoryPlanningPass):
             if _is_buffer(node, graph_signature):
                 buffer_name = graph_signature.inputs_to_buffers[node.target]
                 if buffer_name in self.shared_buffers:
-                    # shared mutable buffers are always mem_id 2 -> there is a issue regarding layout. currently can only have a single shared mutable buffer.
+                    # shared mutable buffers are always mem_id 2, internal layout is done in the init_shared_buffers phase.
                     node.meta["spec"].mem_id = 2
                     # this is a shared mutable buffer, its lifetime is infinite (max int64):
-                    # this should not be updated by the memory planner, since lifetime can only expand.
                     # once the memory is planned, we will update the lifetime to the actual lifetime of the buffer (max val of nodes in graph)
                     node.meta["spec"].lifetime = [0, 9223372036854775807]
-                    # this must be a shared mutable buffer, even if we do not modify it, treat it as non-const.
-                    # it will not get correctly if we do not treat it as non-const and add it to buffers to mutate.
-                    # node.meta["spec"].const = False
-                    # graph_module.graph.buffers_to_mutate.add(node.target)
 
         parent_result = super().run(graph_module, graph_signature)
 
@@ -164,7 +153,8 @@ def add_buffer_mutation_to_graph(
     # Shared buffers must always be marked as mutable, even if they not mutated.
     # To add this in without digging (too much) through export, dynamo, tracing,
     # or exir, we do the stupid thing, and mutate all shared buffers.
-    # Specifically we add a self.shared_buffer.copy_(self.shared_buffer) to the 
+
+    # Specifically we add a self.shared_buffer.copy_(self.shared_buffer) to the
     # begining of the graph.
 
     # This gets pulled out during the to_edge stage, with
@@ -173,34 +163,43 @@ def add_buffer_mutation_to_graph(
     # creating a fully functionalized graph. This allows us to do standard memory
     # planning as if all the shared buffers were mutated.
 
-    # Finally in the to_executorch stage, insert_write_back_for_buffers_pass adds 
-    # in copy operations to any output nodes that are buffer mutations of input 
-    # nodes. However, it does not add in copy operations if the copy src and 
+    # Finally in the to_executorch stage, insert_write_back_for_buffers_pass adds
+    # in copy operations to any output nodes that are buffer mutations of input
+    # nodes. However, it does not add in copy operations if the copy src and
     # target are the same node.
 
-    # The end result is that there is no additional overhead, and this 
-    # copy-operation is removed, but the buffers are treated otherwise as 
+    # The end result is that there is no additional overhead, and this
+    # copy-operation is removed, but the buffers are treated otherwise as
     # mutations.
 
-    #TODO to_edge_transform_and_lower adds some additional copy ops that seem wierd... (All this works as expected with to_edge)
+    # TODO to_edge_transform_and_lower adds some additional copy ops that seem wierd... (All this works as expected with to_edge)
 
     shared_buffers_in_graph = set()
-    shared_buffers_mutated = set() # mutated buffers will have a copy_ node with their buffer as the target.
-    shared_buffer_input_name_to_node : dict[str, torch.fx.Node] = {}
-
+    shared_buffers_mutated = (
+        set()
+    )  # mutated buffers will have a copy_ node with their buffer as the target.
+    shared_buffer_input_name_to_node: dict[str, torch.fx.Node] = {}
 
     # go through the graph and find all the shared buffers, also identify if they are mutated.
     for node in gm.graph.nodes:
-        if node.op == "placeholder" and  node.target in graph_signature.inputs_to_buffers:
+        if (
+            node.op == "placeholder"
+            and node.target in graph_signature.inputs_to_buffers
+        ):
             shared_buffers_in_graph.add(graph_signature.inputs_to_buffers[node.target])
             shared_buffer_input_name_to_node[node.name] = node
             pass
         if node.op == "call_function" and node.target == torch.ops.aten.copy_.default:
             copy_target = node.args[0]
-            if copy_target.name in graph_signature.inputs_to_buffers and graph_signature.inputs_to_buffers[copy_target.name] in shared_buffers_in_graph:
-                shared_buffers_mutated.add(graph_signature.inputs_to_buffers[copy_target.name])
+            if (
+                copy_target.name in graph_signature.inputs_to_buffers
+                and graph_signature.inputs_to_buffers[copy_target.name]
+                in shared_buffers_in_graph
+            ):
+                shared_buffers_mutated.add(
+                    graph_signature.inputs_to_buffers[copy_target.name]
+                )
 
-    
     print(f"Shared buffers in graph: {shared_buffers_in_graph}")
     print(f"Shared buffers mutated: {shared_buffers_mutated}")
     # shared buffers that are not mutated:
@@ -215,30 +214,60 @@ def add_buffer_mutation_to_graph(
             for buffer in shared_buffers_not_mutated:
                 with gm.graph.inserting_before(node) as insert_node:
                     # reverse lookup dict
-                    buffer_input_name = [k for k, v in graph_signature.inputs_to_buffers.items() if v == buffer][0]
-                    buffer_input_node = shared_buffer_input_name_to_node[buffer_input_name]
-                    insert_node = gm.graph.call_function(torch.ops.aten.copy_.default, (buffer_input_node, buffer_input_node))
+                    buffer_input_name = [
+                        k
+                        for k, v in graph_signature.inputs_to_buffers.items()
+                        if v == buffer
+                    ][0]
+                    buffer_input_node = shared_buffer_input_name_to_node[
+                        buffer_input_name
+                    ]
+                    insert_node = gm.graph.call_function(
+                        torch.ops.aten.copy_.default,
+                        (buffer_input_node, buffer_input_node),
+                    )
                     node.replace_input_with(buffer_input_node, insert_node)
-                    #add recompile?
+                    # add recompile
                     pass
             break
         pass
-    # add the copy_ node to the graph:
     pass
+
+    print(f"graph_signature: {graph_signature}")
+
+
+##############################################
+# Classes for registering methods and buffers.
+##############################################
+@dataclass
+class MethodArg:
+    example_input: torch.Tensor
+    dynamic_dims: dict[int, _Dim] = field(default_factory=dict)
+
+
+@dataclass
+class MethodRegistration:
+    fn: Callable
+    kwargs: dict[str, MethodArg]
+
+
+@dataclass
+class SharedBufferRegistration:
+    buffer: torch.Tensor
 
 
 # exporter class that wraps the module, and provides methods for exporting.
 # 1. Init with a module.
 # 2. Register methods of the module that you want to export (including dynamic Dims).
-# 2. Regsister torch buffers that are shared across all methods.
+# 2. Register torch buffers that are shared across all methods.
 # 3. TODO: quantize the model.
 # 4. trace the model (export)
 # 5. to_edge the modeln (optionally with backend).
 # 6. to_executorch the model (alongside ETRecord).
 # 6. save the executorch model + ETRecord.
-class Exporter:
+class MultiEntryPointExporter:
     model: torch.nn.Module
-    registered_method_dict: dict[str, tuple[callable, dict]]
+    registered_method_dict: dict[str, MethodRegistration]
     registered_shared_buffers: dict[str, tuple[torch.Tensor, Callable]]
 
     method_graphs: dict[str, ExportedProgram]
@@ -264,13 +293,37 @@ class Exporter:
             raise ValueError(
                 f"Function {fn.__name__} is not a method of {self.model.__class__.__name__}"
             )
-        self.registered_method_dict[fn.__name__] = (fn, kwargs)
+        # validate that kwargs are a dict of MethodArg:
+        for key, arg in kwargs.items():
+            if not isinstance(arg, MethodArg):
+                raise ValueError(
+                    f"Argument of {fn.__name__} (arg name: {key}) must be a MethodArg"
+                )
+            if not isinstance(arg.example_input, torch.Tensor):
+                raise ValueError(
+                    f"Argument of {fn.__name__} (arg name: {key}.example_input) must be a torch.Tensor"
+                )
+            if not isinstance(arg.dynamic_dims, dict):
+                raise ValueError(
+                    f"Argument of {fn.__name__} (arg name: {key}.dynamic_dims) must be a dict"
+                )
+            for dim_idx, dim in arg.dynamic_dims.items():
+                if not isinstance(dim_idx, int):
+                    raise ValueError(
+                        f"Argument of {fn.__name__} (arg name: {key}.dynamic_dims) must be a dict with int keys"
+                    )
+                if not isinstance(dim, _Dim):
+                    raise ValueError(
+                        f"Argument of {fn.__name__} (arg name: {key}.dynamic_dims) must be a dict with Dim values"
+                    )
+    
+        self.registered_method_dict[fn.__name__] = MethodRegistration(fn, kwargs)
 
     def register_shared_buffer(self, fqn: str):
         # fqn can be a string to a buffer in a model or a module.
         try:
             object = attrgetter(fqn)(self.model)
-        except AttributeError as e:
+        except AttributeError:
             raise ValueError(
                 f"register_shared_buffer: Object {fqn} does not exist in {self.model.__class__.__name__}"
             )
@@ -324,7 +377,7 @@ class Exporter:
             # add method to the model:
             self.model.et_module_init = MethodType(et_module_init, self.model)
             # add to method dict:
-            self.registered_method_dict["et_module_init"] = (
+            self.registered_method_dict["et_module_init"] = MethodRegistration(
                 self.model.et_module_init,
                 {},
             )
@@ -332,41 +385,31 @@ class Exporter:
 
         with torch.no_grad():
             for method in self.registered_method_dict:
-                fn, kwargs = self.registered_method_dict[method]
+                method_registration = self.registered_method_dict[method]
                 # update the forward method of the model:
-                with patch_forward(self.model, fn):
+                with patch_forward(self.model, method_registration.fn):
                     sig = inspect.signature(self.model.forward)
                     param_names = [param.name for param in sig.parameters.values()]
                     print(param_names)
                     example_args = {}
                     dynamic_shapes = {}
-                    for param in param_names:
-                        if param not in kwargs:
+                    # check that all registered parameters are present in the method signature:
+                    for registered_kwarg in method_registration.kwargs:
+                        if registered_kwarg not in param_names:
                             raise ValueError(
-                                f"Parameter {param} not found in function {fn.__name__} registration, options are {kwargs.keys()}"
+                                f"Parameter {registered_kwarg} not found in function {method_registration.fn.__name__} signature, options are {param_names}"
+                            )
+                    for param in param_names:
+                        if param not in method_registration.kwargs:
+                            raise ValueError(
+                                f"Parameter {param} not found in function {method_registration.fn.__name__} registration, options are {method_registration.kwargs.keys()}"
                             )
                         else:
-                            param_value = kwargs[param]
+                            param_value = method_registration.kwargs[param]
                             # parameter has been registered:
-                            if type(param_value) is not tuple:
-                                example_args[param] = param_value
-                            else:
-                                # we got a tuple
-                                example_args[param] = param_value[0]
-                                if len(param_value) > 1:
-                                    # validate that the dynamic shapes are valid:
-                                    # create a list of valid dims:
-                                    valid_dims = range(0, len(param_value[0].shape))
-                                    for dim_idx in param_value[1]:
-                                        if dim_idx not in valid_dims:
-                                            raise ValueError(
-                                                f"Invalid dim index {{{dim_idx}}} for parameter {{{param}}} of fn {{{fn.__name__}}}"
-                                            )
+                            example_args[param] = param_value.example_input
+                            dynamic_shapes[param] = param_value.dynamic_dims
 
-                                    dynamic_shapes[param] = param_value[1]
-                    print(
-                        f"Exporting {fn.__name__} with args {example_args}, and dynamic shapes {dynamic_shapes}"
-                    )
                     method_graph: ExportedProgram = export(
                         self.model,
                         (),
@@ -374,14 +417,18 @@ class Exporter:
                         dynamic_shapes=dynamic_shapes,
                         strict=True,
                     )
-                    print(f"--------------------------------")
-                    print(f"Method Graph: {fn.__name__}")
-                    add_buffer_mutation_to_graph(method_graph, method_graph.graph_signature, self.registered_shared_buffers)
-                    self.method_graphs[fn.__name__] = method_graph
-            print(f"--------------------------------")
-            print(f"Method Graphs:")
+                    print("--------------------------------")
+                    print(f"Method Graph: {method}")
+                    add_buffer_mutation_to_graph(
+                        method_graph,
+                        method_graph.graph_signature,
+                        self.registered_shared_buffers,
+                    )
+                    self.method_graphs[method] = method_graph
+            print("--------------------------------")
+            print("Method Graphs:")
             for key, method in self.method_graphs.items():
-                print(f"  ------------------------------")
+                print("  ------------------------------")
                 print(f"  method: {key}")
                 print("  " + str(method.graph))
 
@@ -407,10 +454,10 @@ class Exporter:
         self.edge_program = edge_program
 
         # validate that the edge program is valid:
-        print(f"--------------------------------")
-        print(f"Edge Program:")
+        print("--------------------------------")
+        print("Edge Program:")
         for key, method in self.edge_program._edge_programs.items():
-            print(f"  ------------------------------")
+            print("  ------------------------------")
             print(f"  method: {key}")
             print("  " + str(method.graph))
 

@@ -2,7 +2,7 @@ from pathlib import Path
 import torch
 from torch.export import Dim
 from executorch.backends.xnnpack.partition.xnnpack_partitioner import XnnpackPartitioner
-from execu_tools.model_exporter import Exporter
+from execu_tools.model_exporter import MultiEntryPointExporter
 from executorch.runtime import Runtime, Verification, Program, Method
 
 
@@ -74,7 +74,7 @@ def test_stateful_export():
 
     model = StatefulModel(max_batch_size=max_batch_size, max_seq_len=max_seq_len)
 
-    exporter = Exporter(model)
+    exporter = MultiEntryPointExporter(model)
 
     # register the buffer by fqn ie "cache or subobject.subcache":
     exporter.register_shared_buffer("cache")
