@@ -4,4 +4,5 @@
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
+    "python.testing.cwd": "${workspaceFolder}/cpp/build/_deps/executorch",
 }
