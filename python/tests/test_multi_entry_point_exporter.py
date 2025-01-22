@@ -47,6 +47,16 @@ class SimpleModel(torch.nn.Module):
         self.buffer1.copy_(x)
         return None
 
+    def set_buffer_dynamic(self, x: torch.Tensor):
+        narrowed_buffer_0 = self.buffer1.narrow(0, 0, x.shape[0])
+        narrowed_buffer_1 = narrowed_buffer_0.narrow(1, 0, x.shape[1])
+        narrowed_buffer_1.copy_(x)
+        return None
+    
+    def load_from_buffer_dynamic(self, x: torch.Tensor):
+        x.copy_(self.buffer1.narrow(0, 0, x.size(0)).narrow(1, 0, x.size(1)))
+        return None
+
 
 @pytest.fixture
 def model():
@@ -104,7 +114,7 @@ def test_register_invalid_method_arg(exporter: MultiEntryPointExporter, model: S
     with pytest.raises(ValueError):
         exporter.register(model.method1, x=MethodArg(torch.ones(1), dynamic_dims={0: "not_a_dim"}))
 
-def test_register_invalid_method(exporter):
+def test_register_invalid_method(exporter: MultiEntryPointExporter):
     """Test registering a method that doesn't exist"""
 
     def invalid_method(x):
@@ -169,7 +179,7 @@ def test_export_single_method(exporter: MultiEntryPointExporter, model: SimpleMo
         exporter.register(model.method1, x=MethodArg(torch.ones(10, 20)), y=MethodArg(torch.ones(10, 20)))
         exporter.export()
 
-def test_export_multiple_methods(exporter, model):
+def test_export_multiple_methods(exporter: MultiEntryPointExporter, model: SimpleModel):
     """Test exporting multiple methods"""
     exporter.register(model.method1, x=MethodArg(torch.ones(10, 20)))
     exporter.register(model.method2, x=MethodArg(torch.ones(10, 20)))
@@ -177,7 +187,7 @@ def test_export_multiple_methods(exporter, model):
     assert "method1" in method_graphs
     assert "method2" in method_graphs
 
-def test_export_with_shared_buffers(exporter, model):
+def test_export_with_shared_buffers(exporter: MultiEntryPointExporter, model: SimpleModel):
     """Test exporting methods with shared buffers"""
     exporter.register_shared_buffer("buffer1")
     exporter.register(model.method2, x=MethodArg(torch.ones(10, 20)))
@@ -185,7 +195,7 @@ def test_export_with_shared_buffers(exporter, model):
     assert "method2" in method_graphs
     assert "et_module_init" in method_graphs  # Should create init method
 
-def test_copy_insertion():
+def test_copy_insertion(exporter: MultiEntryPointExporter, model: SimpleModel):
     """Test that copy operations are inserted for shared buffers that are not mutated"""
     model = SimpleModel()
     exporter = MultiEntryPointExporter(model)
@@ -252,7 +262,7 @@ def test_copy_insertion():
     assert buffer_copy_count == 2, "Expected two copy operations in load_from_buffer1 method"
     assert buffer_self_copy_found, "No self-copy operation found for buffer1 in load_from_buffer1 method"
 
-def test_to_edge(exporter, model):
+def test_to_edge(exporter: MultiEntryPointExporter, model: SimpleModel):
     """Test converting to edge format with multiple methods"""
     exporter.register(model.method1, x=MethodArg(torch.ones(10, 20)))
     exporter.register(model.method2, x=MethodArg(torch.ones(10, 20)))
@@ -263,7 +273,7 @@ def test_to_edge(exporter, model):
     assert "method1" in edge_program._edge_programs
     assert "method2" in edge_program._edge_programs
 
-def test_to_edge_with_multiple_shared_buffers(exporter, model):
+def test_to_edge_with_multiple_shared_buffers(exporter: MultiEntryPointExporter, model: SimpleModel):
     """Test converting to edge format with multiple methods and shared buffers"""
     # Register multiple shared buffers
     exporter.register_shared_buffer("buffer1")
@@ -293,7 +303,7 @@ def test_to_edge_with_multiple_shared_buffers(exporter, model):
 
 
 
-def test_to_executorch(exporter, model):
+def test_to_executorch(exporter: MultiEntryPointExporter, model: SimpleModel):
     """Test converting to executorch format"""
     exporter.register(model.method1, x=MethodArg(torch.ones(10, 20)))
     exporter.export()
@@ -302,7 +312,7 @@ def test_to_executorch(exporter, model):
     assert executorch_program is not None
 
 
-def test_save(exporter, model, tmp_path):
+def test_save(exporter: MultiEntryPointExporter, model: SimpleModel, tmp_path: Path):
     """Test saving the exported model"""
     exporter.register(model.method1, x=MethodArg(torch.ones(10, 20)))
     exporter.export()
@@ -317,7 +327,7 @@ def test_save(exporter, model, tmp_path):
     assert (output_dir / "test_model.etrecord").exists()
 
 
-def test_method_with_multiple_args(exporter, model):
+def test_method_with_multiple_args(exporter: MultiEntryPointExporter, model: SimpleModel):
     """Test exporting a method with multiple arguments"""
     exporter.register(model.method3, 
                      x=MethodArg(torch.ones(5, 5)),
@@ -396,3 +406,85 @@ def test_memory_planning(exporter: MultiEntryPointExporter, model: SimpleModel):
         offset = specs["mem_offset"]
         assert offset not in buffer_offsets, f"Buffer {buffer_name} has same offset as another buffer"
         buffer_offsets.add(offset)
+
+def test_dynamic_buffer_set(exporter: MultiEntryPointExporter, model: SimpleModel):
+    """Test that dynamic buffer operations work correctly"""
+    # Register buffer1 as a shared buffer
+    exporter.register_shared_buffer("buffer1")
+    
+    # Register methods with dynamic buffer operations
+    test_dim_0 = Dim("dim0", min=1, max=10)
+    test_dim_1 = Dim("dim1", min=1, max=20)
+    
+    exporter.register(
+        model.set_buffer_dynamic, 
+        x=MethodArg(torch.ones(5, 20), dynamic_dims={0: test_dim_0, 1: test_dim_1})
+    )
+    
+    method_graphs = exporter.export()
+    
+    # Check that the method is exported
+    assert "set_buffer_dynamic" in method_graphs
+    assert "et_module_init" in method_graphs
+    
+    # First initialize the entire buffer with 3.0
+    init_input = torch.full((10, 20), 3.0)
+    method_graphs['set_buffer_dynamic'].module()(x=init_input)
+    
+    # Create test input tensor with specific values
+    test_input = torch.full((7, 15), 42.0)  # Different size than example, filled with 42
+    
+    # Execute the method with smaller region
+    method_graphs['set_buffer_dynamic'].module()(x=test_input)
+    
+    # Get the buffer and verify its contents
+    named_buffers = dict(method_graphs['set_buffer_dynamic'].named_buffers())
+    assert "buffer1" in named_buffers
+    
+    # Check that the dynamic region was updated correctly
+    buffer_content = named_buffers["buffer1"]
+    assert torch.all(buffer_content[:7, :15] == 42.0), "Dynamic region not properly updated"
+    assert torch.all(buffer_content[7:, :] == 3.0), "Unchanged region was modified"
+    assert torch.all(buffer_content[:7, 15:] == 3.0), "Unchanged region was modified"
+
+def test_dynamic_buffer_load(exporter: MultiEntryPointExporter, model: SimpleModel):
+    """Test that dynamic buffer load operations work correctly"""
+    # Register buffer1 as a shared buffer
+    exporter.register_shared_buffer("buffer1")
+    
+    # Register methods with dynamic buffer operations
+    test_dim_0 = Dim("dim0", min=1, max=10)
+    test_dim_1 = Dim("dim1", min=1, max=20)
+    
+    # Register load method
+    exporter.register(
+        model.load_from_buffer_dynamic,
+        x=MethodArg(torch.ones(5, 20), dynamic_dims={0: test_dim_0, 1: test_dim_1})
+    )
+    
+    method_graphs = exporter.export()
+    
+    # Check that method is exported
+    assert "load_from_buffer_dynamic" in method_graphs
+    assert "et_module_init" in method_graphs
+    
+    # Initialize buffer with known pattern after export using named_buffers
+    named_buffers = dict(method_graphs['load_from_buffer_dynamic'].named_buffers())
+    assert "buffer1" in named_buffers
+    named_buffers["buffer1"].fill_(3.0)
+    
+    # Create output tensor to load into
+    output = torch.zeros(7, 15)  # Different size than example
+    
+    # Load from buffer into output tensor
+    method_graphs['load_from_buffer_dynamic'].module()(x=output)
+    
+    # Verify the loaded values match what we set
+    assert torch.all(output == 3.0), "Loaded values don't match what was in buffer"
+
+
+if __name__ == "__main__":
+    my_model = SimpleModel()
+    my_exporter = MultiEntryPointExporter(my_model)
+    # test_dynamic_buffer_operations(my_exporter, my_model)
+    pass

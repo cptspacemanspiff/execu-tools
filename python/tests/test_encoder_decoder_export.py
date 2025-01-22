@@ -5,7 +5,6 @@ import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
 from execu_tools.encoder_decoder_export import EncoderDecoderWrapper
-from execu_tools.model_exporter import MultiEntryPointExporter
 from transformers.cache_utils import StaticCache, EncoderDecoderCache
 
 
