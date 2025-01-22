@@ -46,35 +46,23 @@ class StatefulModel(torch.nn.Module):
 
     def set_cache(self, data: torch.Tensor):
         self.cache.copy_(data)
-        self.cache.add_(
-            0
-        )  # this is a hack to fix bug: https://github.com/pytorch/executorch/issues/7515
         return None
     
     def set_cache_zero(self):
         self.subobject1.subcache.copy_(torch.zeros(10,20))
-        self.cache.add_(
-            0
-        )  # this is a hack to fix bug: https://github.com/pytorch/executorch/issues/7515
         return None
 
-
-
     def get_cache(self, data: torch.Tensor):
-        # Note this is fragile b/c of the data dependent-ish slicing.
-        # we *must* use narrow, rathar than indexing. There may be otherways to
-        # do this, but this did not have to futz with torch._checks.
-        # self.cache.add_(0)
-        # mutate the cache so that it is placed correctly:
-
+        # self.cache.copy_(self.cache)
         data.copy_(self.cache)
-        self.othercache.add_(
-            0
-        )  # this is a hack to fix bug: https://github.com/pytorch/executorch/issues/7515
         # it is also a hack to fix the issue that constants are handled differently
         # than mutable buffers, so we need to mutate the buffer. (TODO: fix this)
         return None
 
+    def get_cache_mutation(self, data: torch.Tensor):
+        self.cache.copy_(self.cache)
+        data.copy_(self.cache)
+        return None
 
 def get_test_dir() -> Path:
     return Path(__file__).parent
@@ -92,9 +80,8 @@ def test_stateful_export():
     exporter.register_shared_buffer("cache")
 
     # register the buffer by object (registers all persistant buffers in the object):
-    exporter.register_shared_buffer('othercache')
-
-    exporter.register_shared_buffer('subobject1')
+    # exporter.register_shared_buffer('othercache')
+    # exporter.register_shared_buffer('subobject1')
 
     # register the methods:
     batch_size = Dim("batch_size_dim", min=1, max=max_batch_size)
@@ -107,6 +94,11 @@ def test_stateful_export():
     )
     exporter.register(
         model.get_cache,
+        # data=(torch.ones(2, 2), {0: batch_size, 1: seq_len}),
+        data=(torch.ones(max_batch_size, max_seq_len)),
+    )
+    exporter.register(
+        model.get_cache_mutation,
         # data=(torch.ones(2, 2), {0: batch_size, 1: seq_len}),
         data=(torch.ones(max_batch_size, max_seq_len)),
     )

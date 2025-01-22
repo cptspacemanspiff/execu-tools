@@ -134,6 +134,99 @@ class SharedMemoryPlanningPass(MemoryPlanningPass):
         return parent_result
 
 
+def initialize_shared_memory_planning(
+    backend_config: ExecutorchBackendConfig, edge_program: EdgeProgramManager
+):
+    # validate that the memory planning pass is a shared memory planning pass:
+    if not isinstance(backend_config.memory_planning_pass, SharedMemoryPlanningPass):
+        raise ValueError("Memory planning pass is not a shared memory planning pass.")
+
+    # run the memory planning pass to init shared buffers:
+    tmp_edge_program = copy.deepcopy(edge_program)
+
+    # turn on the memory planning pass init shared buffers:
+    backend_config.memory_planning_pass.init_shared_buffers = True
+    # only run et_module_init:
+    tmp_edge_program._edge_programs = {
+        name: prog
+        for name, prog in tmp_edge_program._edge_programs.items()
+        if name == "et_module_init"
+    }
+    tmp_edge_program.to_executorch(config=backend_config)
+
+    # turn off the memory planning pass init shared buffers:
+    backend_config.memory_planning_pass.init_shared_buffers = False
+
+
+def add_buffer_mutation_to_graph(
+    gm: torch.fx.GraphModule, graph_signature: ExportGraphSignature, buffers: list[str]
+):
+    # Shared buffers must always be marked as mutable, even if they not mutated.
+    # To add this in without digging (too much) through export, dynamo, tracing,
+    # or exir, we do the stupid thing, and mutate all shared buffers.
+    # Specifically we add a self.shared_buffer.copy_(self.shared_buffer) to the 
+    # begining of the graph.
+
+    # This gets pulled out during the to_edge stage, with
+    # _remove_unneccessary_copy_op_pass in torch.export.exported_program.py
+    # The copy op is removed and the output node is mapped directly to the input
+    # creating a fully functionalized graph. This allows us to do standard memory
+    # planning as if all the shared buffers were mutated.
+
+    # Finally in the to_executorch stage, insert_write_back_for_buffers_pass adds 
+    # in copy operations to any output nodes that are buffer mutations of input 
+    # nodes. However, it does not add in copy operations if the copy src and 
+    # target are the same node.
+
+    # The end result is that there is no additional overhead, and this 
+    # copy-operation is removed, but the buffers are treated otherwise as 
+    # mutations.
+
+    #TODO to_edge_transform_and_lower adds some additional copy ops that seem wierd... (All this works as expected with to_edge)
+
+    shared_buffers_in_graph = set()
+    shared_buffers_mutated = set() # mutated buffers will have a copy_ node with their buffer as the target.
+    shared_buffer_input_name_to_node : dict[str, torch.fx.Node] = {}
+
+
+    # go through the graph and find all the shared buffers, also identify if they are mutated.
+    for node in gm.graph.nodes:
+        if node.op == "placeholder" and  node.target in graph_signature.inputs_to_buffers:
+            shared_buffers_in_graph.add(graph_signature.inputs_to_buffers[node.target])
+            shared_buffer_input_name_to_node[node.name] = node
+            pass
+        if node.op == "call_function" and node.target == torch.ops.aten.copy_.default:
+            copy_target = node.args[0]
+            if copy_target.name in graph_signature.inputs_to_buffers and graph_signature.inputs_to_buffers[copy_target.name] in shared_buffers_in_graph:
+                shared_buffers_mutated.add(graph_signature.inputs_to_buffers[copy_target.name])
+
+    
+    print(f"Shared buffers in graph: {shared_buffers_in_graph}")
+    print(f"Shared buffers mutated: {shared_buffers_mutated}")
+    # shared buffers that are not mutated:
+    shared_buffers_not_mutated = shared_buffers_in_graph - shared_buffers_mutated
+    print(f"Shared buffers not mutated: {shared_buffers_not_mutated}")
+
+    # add the copy_ node for the shared buffers that are not mutated:
+
+    for node in gm.graph.nodes:
+        if node.op != "placeholder":
+            # This is the first node that is not a placeholder, insert the copy_ node before it.
+            for buffer in shared_buffers_not_mutated:
+                with gm.graph.inserting_before(node) as insert_node:
+                    # reverse lookup dict
+                    buffer_input_name = [k for k, v in graph_signature.inputs_to_buffers.items() if v == buffer][0]
+                    buffer_input_node = shared_buffer_input_name_to_node[buffer_input_name]
+                    insert_node = gm.graph.call_function(torch.ops.aten.copy_.default, (buffer_input_node, buffer_input_node))
+                    node.replace_input_with(buffer_input_node, insert_node)
+                    #add recompile?
+                    pass
+            break
+        pass
+    # add the copy_ node to the graph:
+    pass
+
+
 # exporter class that wraps the module, and provides methods for exporting.
 # 1. Init with a module.
 # 2. Register methods of the module that you want to export (including dynamic Dims).
@@ -183,13 +276,13 @@ class Exporter:
             )
         if isinstance(object, torch.Tensor):
             # check if the object is a buffer:
-            if not fqn in [
+            if fqn not in [
                 n for n, _ in self.model.named_buffers()
             ]:  # object is a buffer.
                 raise ValueError(
                     f"register_shared_buffer: {fqn} is not a buffer in {self.model.__class__.__name__}"
                 )
-            if not fqn in [n for n in self.model.state_dict()]:  # buffer is persistent.
+            if fqn not in [n for n in self.model.state_dict()]:  # buffer is persistent.
                 raise ValueError(
                     f"register_shared_buffer: Buffer {fqn} is not persistent in {self.model.__class__.__name__}"
                 )
@@ -226,7 +319,6 @@ class Exporter:
                     buffer = attrgetter(key)(self_module)
                     # const_vals = _get_constant_default(key)
                     buffer.copy_(torch.zeros_like(buffer))
-                    buffer.add_(0)
                 return None
 
             # add method to the model:
@@ -282,7 +374,16 @@ class Exporter:
                         dynamic_shapes=dynamic_shapes,
                         strict=True,
                     )
+                    print(f"--------------------------------")
+                    print(f"Method Graph: {fn.__name__}")
+                    add_buffer_mutation_to_graph(method_graph, method_graph.graph_signature, self.registered_shared_buffers)
                     self.method_graphs[fn.__name__] = method_graph
+            print(f"--------------------------------")
+            print(f"Method Graphs:")
+            for key, method in self.method_graphs.items():
+                print(f"  ------------------------------")
+                print(f"  method: {key}")
+                print("  " + str(method.graph))
 
         return self.method_graphs
 
@@ -347,16 +448,19 @@ class Exporter:
         #             )
         #         pass
 
-        edge_program: EdgeProgramManager = to_edge_transform_and_lower(
+        edge_program: EdgeProgramManager = to_edge(
             self.method_graphs,
-            partitioner=partitioners,
         )
 
         self.edge_program = edge_program
 
         # validate that the edge program is valid:
-        # for key, method in self.edge_program._edge_programs.items():
-        #     method.graph.print_tabular()
+        print(f"--------------------------------")
+        print(f"Edge Program:")
+        for key, method in self.edge_program._edge_programs.items():
+            print(f"  ------------------------------")
+            print(f"  method: {key}")
+            print("  " + str(method.graph))
 
         return edge_program
 
@@ -369,7 +473,7 @@ class Exporter:
 
         # create a shared memory planning pass:
         shared_memory_planning_pass = SharedMemoryPlanningPass(
-            init_shared_buffers=True,
+            init_shared_buffers=False,
             shared_buffers=self.registered_shared_buffers,
             memory_planning_algo=greedy,
             alloc_graph_input=False,
@@ -382,18 +486,8 @@ class Exporter:
             # emit_stacktrace=True, #does not work?
         )
 
-        # run the memory planning pass to init shared buffers:
-        tmp_edge_program = copy.deepcopy(self.edge_program)
-        # only run et_module_init:
-        tmp_edge_program._edge_programs = {
-            name: prog
-            for name, prog in tmp_edge_program._edge_programs.items()
-            if name == "et_module_init"
-        }
-        tmp_edge_program.to_executorch(config=backend_config)
-
-        # turn off the memory planning pass init shared buffers:
-        backend_config.memory_planning_pass.init_shared_buffers = False
+        # initialize the shared buffers (this will set the memory layout of the shared buffers):
+        initialize_shared_memory_planning(backend_config, self.edge_program)
 
         # Export for real (now that we have the shared buffer memory layout):
         self.executorch_program = self.edge_program.to_executorch(config=backend_config)
@@ -401,13 +495,16 @@ class Exporter:
         # debug:
         for key, method in self.executorch_program._execution_programs.items():
             print(f"method: {key}")
-            nodes = method.graph_module.graph.nodes
-            method.graph.print_tabular()
-            # for node in method.graph_module
+            print(method.graph)
         return self.executorch_program
 
     def save(
-        self, dir: Path, name: str, et_record: bool = True, memory_trace: bool = True
+        self,
+        dir: Path,
+        name: str,
+        et_record: bool = True,
+        memory_trace: bool = True,
+        op_trace=True,
     ):
         model_name = self.model.__class__.__name__
         if self.executorch_program is None:
@@ -430,6 +527,12 @@ class Exporter:
                 self.executorch_program,
                 {model_name: self.edge_program_copy},
             )
+
+        if op_trace:
+            for method in self.executorch_program.methods:
+                output_file = dir / f"{model_name}-{method}-graph_trace.txt"
+                with open(output_file, "w") as f:
+                    f.write(str(self.executorch_program.exported_program(method).graph))
 
         if memory_trace:
             for method in self.executorch_program.methods:
