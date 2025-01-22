@@ -400,54 +400,6 @@ class Exporter:
                 "No method graphs found. Please trace (export) the model first."
             )
 
-        # # TODO hack before calling to edge we need to transform the graph to force all mutable buffers to be shared.
-        # def transform_append_mutation_in_place(
-        #     gm: torch.fx.GraphModule,
-        #     graph_signature: ExportGraphSignature,
-        #     buffer_name: str,
-        # ):
-        #     for node in gm.graph.nodes:
-        #         if node.name in graph_signature.inputs_to_buffers:
-        #             if graph_signature.inputs_to_buffers[node.name] == buffer_name:
-        #                 mutated_node = node
-        #         if node.op == "output":
-        #             # append a mutation to the end of the graph: (add zero to the buffer)
-        #             output_node = node
-        #             break
-
-        #     assert mutated_node is not None
-        #     with gm.graph.inserting_before(output_node) as node:
-        #         node = gm.graph.call_function(torch.ops.aten.add_, (mutated_node, 0))
-        #     gm.recompile()
-
-        # tmp_method_graphs = copy.deepcopy(self.method_graphs)
-        # tmp_edge_program: EdgeProgramManager = to_edge_transform_and_lower(
-        #     tmp_method_graphs,
-        #     partitioner=partitioners,
-        # )
-        # const_shared_buffers = {}
-        # for name, program in tmp_edge_program._edge_programs.items():
-        #     const_shared_buffers[name] = []
-        #     signature_buffers = program.graph_signature.buffers
-        #     signature_mutated_buffers = (
-        #         program.graph_signature.buffers_to_mutate.values()
-        #     )
-        #     for buffer in signature_buffers:
-        #         if (buffer not in signature_mutated_buffers) and (
-        #             buffer in self.registered_shared_buffers.keys()
-        #         ):
-        #             const_shared_buffers[name].append(buffer)
-
-        # # append a method to the end of the exported program that mutates the shared buffer:
-        # for name, program in self.method_graphs.items():
-        #     if len(const_shared_buffers[name]) > 0:
-        #         for buf_name in const_shared_buffers[name]:
-        #             # append a method to the end of the exported program that mutates the shared buffer:
-        #             transform_append_mutation_in_place(
-        #                 program.graph_module, program.graph_signature, buf_name
-        #             )
-        #         pass
-
         edge_program: EdgeProgramManager = to_edge(
             self.method_graphs,
         )
