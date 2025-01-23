@@ -354,7 +354,17 @@ class MultiEntryPointExporter:
                     raise ValueError(
                         f"Argument of {fn.__name__} (arg name: {key}.dynamic_dims) must be a dict with Dim values"
                     )
-
+            
+            # Check that the shape of the example input is not the same as the shape of the dynamic dims: (this is a bug?)
+            for dim_idx, dim in arg.dynamic_dims.items():
+                dynamic_min = dim.min
+                dynamic_max = dim.max
+                example_dim_len = arg.example_input.size(dim_idx)
+                if example_dim_len == dynamic_max:
+                    raise ValueError(
+                        f"Example input dimension {dim_idx} length {example_dim_len} is the same as the dynamic dim max {dynamic_max}. This is not supported??? -> possible fix is to use max_dim - 1 "
+                    )
+            pass
         self.registered_method_dict[fn.__name__] = MethodRegistration(fn, kwargs)
 
     def register_shared_buffer(self, fqn: str):

@@ -19,20 +19,16 @@ class StatefulModel(torch.nn.Module):
             persistent=True,
         )
 
+    # need sliceing here:
     def set_cache(self, data: torch.Tensor):
         self.cache[0 : data.shape[0], 0 : data.shape[1]] = data
         return self.cache
 
-    def forward(self, x):
-        self.cache[0:x.shape[0], 0:x.shape[1]] = x
-        return self.cache
-
+    # need narrow here:
     def get_cache(self, data: torch.Tensor):
-        cache_slice_0 = self.cache.narrow(0, 0, data.size(0))
-        cache_slice_1 = cache_slice_0.narrow(1, 0, data.size(1))
-        
-        data.copy_(cache_slice_1)
-        return None
+        narrowed_cache = self.cache.narrow(0, 0, data.size(0)).narrow(1, 0, data.size(1))
+        data.copy_(narrowed_cache)
+        return self.cache
 
 
 def get_test_dir() -> Path:
@@ -40,7 +36,7 @@ def get_test_dir() -> Path:
 
 
 def test_stateful_export():
-    max_batch_size = 4
+    max_batch_size = 10
     max_seq_len = 20
 
     model = StatefulModel(max_batch_size=max_batch_size, max_seq_len=max_seq_len)
@@ -48,9 +44,6 @@ def test_stateful_export():
 
     # Register the buffer by fqn
     exporter.register_shared_buffer("cache")
-
-    # data = torch.ones(max_batch_size-1, max_seq_len-1)+41
-    # model.set_cache(data)
 
     # Define dynamic dimensions
     batch_size = Dim("batch_size_dim", min=1, max=max_batch_size)
@@ -73,13 +66,6 @@ def test_stateful_export():
         ),
     )
 
-    x_in_out_33 = torch.ones(max_batch_size-1, max_seq_len-1)
-
-    manual_export = torch.export.export(
-        model, (x_in_out_33,), dynamic_shapes={"x": {0: batch_size, 1: seq_len}}
-    )
-
-    print(manual_export.graph)
     # Export process
     exporter.export()
     exporter.to_edge()

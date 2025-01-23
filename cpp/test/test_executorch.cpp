@@ -70,7 +70,7 @@ ET_NODISCARD Error run_program() {
   float input[batch_size * seq_len];
   auto tensor = executorch::extension::from_blob(input, {
                                                             2,
-                                                            16,
+                                                            4,
                                                         });
 
   std::fill(input, input + batch_size * seq_len, 1.0f);
@@ -91,8 +91,8 @@ ET_NODISCARD Error run_program() {
   float output[10 * 20];
   std::fill(output, output + 10 * 20, -2.0f);
   auto tensor2 = executorch::extension::from_blob(output, {
+                                                              1,
                                                               10,
-                                                              20,
                                                           });
   auto result2 = MultiEntryModule.execute("get_cache", tensor2);
 
