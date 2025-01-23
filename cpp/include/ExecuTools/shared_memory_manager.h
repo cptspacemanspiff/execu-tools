@@ -24,6 +24,13 @@ public:
   std::shared_ptr<executorch::runtime::HierarchicalAllocator>
   get_allocator(const std::string &method_name);
 
+  std::pair<uint8_t*, size_t> get_buffer(const std::string &method_name, size_t mem_id);
+
+  template<typename T>
+  std::pair<T*, size_t> get_buffer(const std::string &method_name, size_t mem_id){
+    std::pair<uint8_t*, size_t> buffer = get_buffer(method_name, mem_id);
+    return std::make_pair(reinterpret_cast<T*>(buffer.first), buffer.second/sizeof(T));
+  }
 private:
   class MethodDataStore {
   public:

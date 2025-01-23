@@ -149,3 +149,24 @@ void SharedMemoryManager::allocate_memory_for_method(
   method_allocator_map_.insert(
       std::make_pair(method_name, method_allocator_ptr));
 }
+
+
+std::pair<uint8_t*, size_t> SharedMemoryManager::get_buffer(const std::string &method_name, size_t mem_id) {
+
+  // check if the given mem_id is in the shared_memory_ids_ vector:
+  if (std::find(shared_memory_ids_.begin(), shared_memory_ids_.end(), mem_id) != shared_memory_ids_.end()) {
+    // it is a shared memory id, so we need to return the buffer from the shared_memory_buffers_ map:
+    auto it = shared_memory_buffers_.find(mem_id);
+    if (it == shared_memory_buffers_.end()) {
+      ET_CHECK_MSG(false, "Buffer not found shared memory id %zu", mem_id);
+    }
+    return std::make_pair(it->second.first.get(), it->second.second);
+  }
+
+  // it is not a shared memory id, so we need to return the buffer from the method data store:
+  auto it = method_data_store_map_.find(method_name);
+  if (it == method_data_store_map_.end()) {
+    ET_CHECK_MSG(false, "Method data store not found for method %s", method_name.c_str());
+  }
+  return std::make_pair(it->second.arenas[mem_id].data(), it->second.arenas[mem_id].size());
+}

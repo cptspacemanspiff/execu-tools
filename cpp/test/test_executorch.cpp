@@ -14,6 +14,7 @@
 #include <ExecuTools/shared_memory_manager.h>
 
 #include <executorch/runtime/core/error.h>
+#include <span>
 
 using executorch::extension::FileDataLoader;
 using executorch::extension::Module;
@@ -25,7 +26,7 @@ ET_NODISCARD Error run_program() {
 
   //hardcoded values:
   std::string init_method = "et_module_init";
-  std::size_t shared_memory_id = 2;
+  std::size_t shared_memory_id = 1; // one less than the python side.
   
   // create a module:
   Module MultiEntryModule(EXECUTOOLS_PYTHON_ARTIFACT_DIR "/stateful_model.pte");
@@ -38,18 +39,28 @@ ET_NODISCARD Error run_program() {
 
   // use the shared_ptr program to construct a shared memory manager:
   executools::SharedMemoryManager shared_memory_manager(program, {shared_memory_id}, init_method);
+  // internal memory view for debugging:
+  auto shared_memory_info = shared_memory_manager.get_buffer<float>(init_method, shared_memory_id);
+  std::span<float, std::dynamic_extent> shared_memory_view_span{shared_memory_info.first, shared_memory_info.second};
 
-  auto allocator = shared_memory_manager.get_allocator("set_cache");
+  auto set_cache_info = shared_memory_manager.get_buffer<float>("set_cache", 0);
+  std::span<float, std::dynamic_extent> set_cache_view_span{set_cache_info.first, set_cache_info.second};
+
+  auto get_cache_info = shared_memory_manager.get_buffer<float>("get_cache", 0);
+  std::span<float, std::dynamic_extent> get_cache_view_span{get_cache_info.first, get_cache_info.second};
 
   ET_CHECK_OK_OR_RETURN_ERROR(
-      MultiEntryModule.load_method("et_module_init", nullptr, allocator.get()),
-      "Failed to load et_module_init");
+      MultiEntryModule.load_method(init_method, nullptr, shared_memory_manager.get_allocator(init_method).get()),
+      "Failed to load init_method: %s", init_method.c_str());
   ET_CHECK_OK_OR_RETURN_ERROR(
-      MultiEntryModule.load_method("set_cache", nullptr, allocator.get()),
+      MultiEntryModule.load_method("set_cache", nullptr, shared_memory_manager.get_allocator("set_cache").get()),
       "Failed to load set_cache");
   ET_CHECK_OK_OR_RETURN_ERROR(
-      MultiEntryModule.load_method("get_cache", nullptr, allocator.get()),
+      MultiEntryModule.load_method("get_cache", nullptr, shared_memory_manager.get_allocator("get_cache").get()),
       "Failed to load get_cache");
+
+
+  ET_UNWRAP(MultiEntryModule.execute(init_method), "Failed to execute et_module_init");
   // TODO: dynamic shapes are broken...
 
   // method_infos(module);
@@ -58,8 +69,8 @@ ET_NODISCARD Error run_program() {
   // Wrap the input data with a Tensor.
   float input[batch_size * seq_len];
   auto tensor = executorch::extension::from_blob(input, {
-                                                            3,
-                                                            4,
+                                                            2,
+                                                            16,
                                                         });
 
   std::fill(input, input + batch_size * seq_len, 1.0f);
@@ -67,6 +78,7 @@ ET_NODISCARD Error run_program() {
 
   // Run the model.
   auto result = MultiEntryModule.execute("set_cache", tensor);
+
 
   if (result.ok()) {
     auto outputs = executools::utils::resultToString(result);
@@ -79,8 +91,8 @@ ET_NODISCARD Error run_program() {
   float output[10 * 20];
   std::fill(output, output + 10 * 20, -2.0f);
   auto tensor2 = executorch::extension::from_blob(output, {
-                                                              5,
-                                                              7,
+                                                              10,
+                                                              20,
                                                           });
   auto result2 = MultiEntryModule.execute("get_cache", tensor2);
 
