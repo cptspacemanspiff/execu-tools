@@ -1,6 +1,7 @@
 #pragma once
 #include <ExecuTools/ExecuTools_export.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <executorch/runtime/core/hierarchical_allocator.h>
 #include <executorch/runtime/executor/method_meta.h>
@@ -16,7 +17,8 @@ namespace executools {
 class SharedMemoryManager {
 public:
   SharedMemoryManager(std::shared_ptr<executorch::runtime::Program> program,
-                      std::vector<uint32_t> shared_mem_ids={1}// TODO: get this from program (passed throgh constant methods?).
+                      std::vector<size_t> shared_mem_ids={1},// TODO: get this from program (passed throgh constant methods?).
+                      std::string init_method = {"et_module_init"}
                       );
 
   std::shared_ptr<executorch::runtime::HierarchicalAllocator>
@@ -33,10 +35,16 @@ private:
       const std::string &method_name,
       const executorch::runtime::MethodMeta &method_meta);
 
+  // Passed through constructor:
   std::shared_ptr<executorch::runtime::Program> program_;
+  std::vector<size_t> shared_memory_ids_;
+  std::string init_method_;
+
+  //generated in constructor:
   std::unordered_map<std::string, executorch::runtime::MethodMeta>
       method_meta_map_;
-  std::vector<uint32_t> shared_memory_ids_;
+
+  // appended to in allocate_memory_for_method:
   std::unordered_map<uint32_t, std::pair<std::unique_ptr<uint8_t[]>, size_t>>
       shared_memory_buffers_;
   std::unordered_map<std::string, MethodDataStore> method_data_store_map_;

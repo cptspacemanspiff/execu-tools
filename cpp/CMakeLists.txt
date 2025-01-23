@@ -26,8 +26,8 @@ set(EXECUTORCH_BUILD_DEVTOOLS ON)
 
 FetchContent_Declare(
     executorch
-    GIT_REPOSITORY git@github.com:cptspacemanspiff/executorch.git
-    GIT_TAG        personal_main
+    GIT_REPOSITORY https://github.com/cptspacemanspiff/executorch.git
+    GIT_TAG        multiple-entrypoint-shared-state
     # root of executorch must be named executorch see:
     # https://github.com/pytorch/executorch/issues/6475
     SOURCE_DIR     "${CMAKE_BINARY_DIR}/_deps/executorch" 
@@ -36,6 +36,29 @@ FetchContent_Declare(
     SYSTEM
 )
 FetchContent_MakeAvailable(executorch)
+
+FetchContent_Declare(
+    tokenizers-cpp
+    GIT_REPOSITORY https://github.com/mlc-ai/tokenizers-cpp.git
+    GIT_TAG        main
+
+    OVERRIDE_FIND_PACKAGE 
+    SYSTEM
+)
+FetchContent_MakeAvailable(tokenizers-cpp)
+
+FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG        b514bdc898e2951020cbdca1304b75f5950d1f59 # release-1.15.2
+
+    OVERRIDE_FIND_PACKAGE 
+    SYSTEM
+)
+
+FetchContent_MakeAvailable(
+    googletest
+)
 
 # cmt_add_doc_subdirectory(doc)
 cmt_add_src_subdirectory(src)

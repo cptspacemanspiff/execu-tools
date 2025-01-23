@@ -262,6 +262,68 @@ def test_copy_insertion(exporter: MultiEntryPointExporter, model: SimpleModel):
     assert buffer_copy_count == 2, "Expected two copy operations in load_from_buffer1 method"
     assert buffer_self_copy_found, "No self-copy operation found for buffer1 in load_from_buffer1 method"
 
+def test_copy_insertion_dynamic(exporter: MultiEntryPointExporter, model: SimpleModel):
+    """Test that copy operations are inserted correctly for dynamic buffer operations"""
+    # Register buffer1 as a shared buffer
+    exporter.register_shared_buffer("buffer1")
+    
+    # Register methods with dynamic buffer operations
+    test_dim_0 = Dim("dim0", min=1, max=10)
+    test_dim_1 = Dim("dim1", min=1, max=20)
+    
+    exporter.register(
+        model.set_buffer_dynamic, 
+        x=MethodArg(torch.ones(5, 20), dynamic_dims={0: test_dim_0, 1: test_dim_1})
+    )
+    exporter.register(
+        model.load_from_buffer_dynamic,
+        x=MethodArg(torch.ones(5, 20), dynamic_dims={0: test_dim_0, 1: test_dim_1})
+    )
+    
+    method_graphs = exporter.export()
+    
+    # Check set_buffer_dynamic method
+    set_buffer_graph = method_graphs["set_buffer_dynamic"]
+    set_buffer_copy_count = 0
+    set_buffer_self_copy_found = False
+    
+    for node in set_buffer_graph.graph.nodes:
+        if node.op == "call_function" and node.target == torch.ops.aten.copy_.default:
+            set_buffer_copy_count += 1
+            # Check if this is a buffer self-copy
+            if (node.args[0].name in set_buffer_graph.graph_signature.inputs_to_buffers and 
+                node.args[1].name in set_buffer_graph.graph_signature.inputs_to_buffers and
+                set_buffer_graph.graph_signature.inputs_to_buffers[node.args[0].name] == "buffer1" and
+                set_buffer_graph.graph_signature.inputs_to_buffers[node.args[1].name] == "buffer1"):
+                set_buffer_self_copy_found = True
+    
+    # Should have 1 copy operations:
+    # 1. The actual copy from input to the narrowed buffer
+    assert set_buffer_copy_count == 1, "Expected one copy operation in set_buffer_dynamic method"
+    assert set_buffer_self_copy_found is False, "self-copy operation found for buffer1 in set_buffer_dynamic method"
+    
+    # Check load_from_buffer_dynamic method
+    load_buffer_graph = method_graphs["load_from_buffer_dynamic"]
+    load_buffer_copy_count = 0
+    load_buffer_self_copy_found = False
+    
+    for node in load_buffer_graph.graph.nodes:
+        if node.op == "call_function" and node.target == torch.ops.aten.copy_.default:
+            load_buffer_copy_count += 1
+            # Check if this is a buffer self-copy
+            if (node.args[0].name in load_buffer_graph.graph_signature.inputs_to_buffers and 
+                node.args[1].name in load_buffer_graph.graph_signature.inputs_to_buffers and
+                load_buffer_graph.graph_signature.inputs_to_buffers[node.args[0].name] == "buffer1" and
+                load_buffer_graph.graph_signature.inputs_to_buffers[node.args[1].name] == "buffer1"):
+                load_buffer_self_copy_found = True
+    
+    # Should have 2 copy operations:
+    # 1. The self-copy for buffer to make sure it's a mutable buffer
+    # 2. The actual copy from narrowed buffer to output
+    assert load_buffer_copy_count == 2, "Expected two copy operations in load_from_buffer_dynamic method"
+    assert load_buffer_self_copy_found, "No self-copy operation found for buffer1 in load_from_buffer_dynamic method"
+
+
 def test_to_edge(exporter: MultiEntryPointExporter, model: SimpleModel):
     """Test converting to edge format with multiple methods"""
     exporter.register(model.method1, x=MethodArg(torch.ones(10, 20)))
@@ -406,6 +468,8 @@ def test_memory_planning(exporter: MultiEntryPointExporter, model: SimpleModel):
         offset = specs["mem_offset"]
         assert offset not in buffer_offsets, f"Buffer {buffer_name} has same offset as another buffer"
         buffer_offsets.add(offset)
+
+
 
 def test_dynamic_buffer_set(exporter: MultiEntryPointExporter, model: SimpleModel):
     """Test that dynamic buffer operations work correctly"""

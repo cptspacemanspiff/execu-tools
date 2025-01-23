@@ -5,6 +5,10 @@ from pathlib import Path
 from types import MethodType
 from typing import Callable, Optional
 from operator import attrgetter
+import executorch.exir
+import executorch.exir.dialects
+import executorch.exir.dialects.edge._ops
+import executorch.exir.dialects.edge.op.api
 import torch
 from torch.export import (
     export,
@@ -12,6 +16,7 @@ from torch.export import (
     ExportedProgram,
     ExportGraphSignature,
 )
+import executorch
 from executorch.exir import to_edge, to_edge_transform_and_lower, EdgeProgramManager
 from executorch.exir import ExecutorchProgram, ExecutorchBackendConfig
 from executorch.exir.pass_base import PassResult
@@ -24,6 +29,11 @@ import inspect
 from executorch.devtools.etrecord._etrecord import ETRecord
 from executorch.util.activation_memory_profiler import generate_memory_trace
 from torch.export.dynamic_shapes import _Dim
+
+import executorch.exir.dialects.edge
+
+import executorch.exir.dialects.edge.op
+
 
 @contextmanager
 def patch_forward(obj: torch.nn.Module, new_method):
@@ -66,6 +76,8 @@ class SharedMemoryPlanningPass(MemoryPlanningPass):
         self.shared_buffers_memory_layout = {}
         super().__init__(**kwargs)
 
+        self.shared_mem_id = 2
+        self.shared_buffer_size = 0
     def run(
         self,
         graph_module: torch.fx.GraphModule,
@@ -76,7 +88,7 @@ class SharedMemoryPlanningPass(MemoryPlanningPass):
                 buffer_name = graph_signature.inputs_to_buffers[node.target]
                 if buffer_name in self.shared_buffers:
                     # shared mutable buffers are always mem_id 2, internal layout is done in the init_shared_buffers phase.
-                    node.meta["spec"].mem_id = 2
+                    node.meta["spec"].mem_id = self.shared_mem_id
                     # this is a shared mutable buffer, its lifetime is infinite (max int64):
                     # once the memory is planned, we will update the lifetime to the actual lifetime of the buffer (max val of nodes in graph)
                     node.meta["spec"].lifetime = [0, 9223372036854775807]
@@ -86,7 +98,7 @@ class SharedMemoryPlanningPass(MemoryPlanningPass):
         num_nodes = len(parent_result.graph_module.graph.nodes)
 
         if self.init_shared_buffers:
-            # pull the buffer layout that was memory planned:
+            # pull the buffer layout that was memory planned (we only do this once, using the et_module_init method):
             print("pulling buffer layout")
             for node in parent_result.graph_module.graph.nodes:
                 if _is_buffer(node, graph_signature):
@@ -99,23 +111,26 @@ class SharedMemoryPlanningPass(MemoryPlanningPass):
                             "mem_obj_id": node.meta["spec"].mem_obj_id,
                             "mem_offset": node.meta["spec"].mem_offset,
                         }
-
-        for node in parent_result.graph_module.graph.nodes:
-            if _is_buffer(node, graph_signature):
-                buffer_name = graph_signature.inputs_to_buffers[node.target]
-                if buffer_name in self.shared_buffers:
-                    node.meta["spec"].lifetime = [0, num_nodes - 1]
-                    # update the memory layout w/ the shared buffer memory layout:
-                    node.meta["spec"].mem_id = self.shared_buffers_memory_layout[
-                        buffer_name
-                    ]["mem_id"]
-                    node.meta["spec"].mem_obj_id = self.shared_buffers_memory_layout[
-                        buffer_name
-                    ]["mem_obj_id"]
-                    node.meta["spec"].mem_offset = self.shared_buffers_memory_layout[
-                        buffer_name
-                    ]["mem_offset"]
-                    pass
+            self.shared_buffer_size = parent_result.graph_module.meta["non_const_buffer_sizes"][self.shared_mem_id]
+        else:
+            for node in parent_result.graph_module.graph.nodes:
+                if _is_buffer(node, graph_signature):
+                    buffer_name = graph_signature.inputs_to_buffers[node.target]
+                    if buffer_name in self.shared_buffers:
+                        node.meta["spec"].lifetime = [0, num_nodes - 1]
+                        # update the memory layout w/ the shared buffer memory layout:
+                        node.meta["spec"].mem_id = self.shared_buffers_memory_layout[
+                            buffer_name
+                        ]["mem_id"]
+                        node.meta["spec"].mem_obj_id = self.shared_buffers_memory_layout[
+                            buffer_name
+                        ]["mem_obj_id"]
+                        node.meta["spec"].mem_offset = self.shared_buffers_memory_layout[
+                            buffer_name
+                        ]["mem_offset"]
+                        pass
+            
+            parent_result.graph_module.meta["non_const_buffer_sizes"][self.shared_mem_id] = self.shared_buffer_size
 
         # we need to go back through and
 
@@ -157,11 +172,17 @@ def add_buffer_mutation_to_graph(
     # Specifically we add a self.shared_buffer.copy_(self.shared_buffer) to the
     # begining of the graph.
 
+    # Attempt #1
+    # THIS DOES NOT WORK: (It is hard to reliably determine if a buffer is muatated).
     # This gets pulled out during the to_edge stage, with
     # _remove_unneccessary_copy_op_pass in torch.export.exported_program.py
     # The copy op is removed and the output node is mapped directly to the input
     # creating a fully functionalized graph. This allows us to do standard memory
     # planning as if all the shared buffers were mutated.
+
+    # Attempt #2:
+    # Instead of above, just mutate all shared buffers,  with the stupid copy_ op.
+    # then remove the copy ops after to_edge.
 
     # Finally in the to_executorch stage, insert_write_back_for_buffers_pass adds
     # in copy operations to any output nodes that are buffer mutations of input
@@ -175,9 +196,6 @@ def add_buffer_mutation_to_graph(
     # TODO to_edge_transform_and_lower adds some additional copy ops that seem wierd... (All this works as expected with to_edge)
 
     shared_buffers_in_graph = set()
-    shared_buffers_mutated = (
-        set()
-    )  # mutated buffers will have a copy_ node with their buffer as the target.
     shared_buffer_input_name_to_node: dict[str, torch.fx.Node] = {}
 
     # go through the graph and find all the shared buffers, also identify if they are mutated.
@@ -189,29 +207,14 @@ def add_buffer_mutation_to_graph(
             shared_buffers_in_graph.add(graph_signature.inputs_to_buffers[node.target])
             shared_buffer_input_name_to_node[node.name] = node
             pass
-        if node.op == "call_function" and node.target == torch.ops.aten.copy_.default:
-            copy_target = node.args[0]
-            if (
-                copy_target.name in graph_signature.inputs_to_buffers
-                and graph_signature.inputs_to_buffers[copy_target.name]
-                in shared_buffers_in_graph
-            ):
-                shared_buffers_mutated.add(
-                    graph_signature.inputs_to_buffers[copy_target.name]
-                )
 
     print(f"Shared buffers in graph: {shared_buffers_in_graph}")
-    print(f"Shared buffers mutated: {shared_buffers_mutated}")
-    # shared buffers that are not mutated:
-    shared_buffers_not_mutated = shared_buffers_in_graph - shared_buffers_mutated
-    print(f"Shared buffers not mutated: {shared_buffers_not_mutated}")
-
-    # add the copy_ node for the shared buffers that are not mutated:
+    # add the copy_ node for all methods, even if they are already mutated.
 
     for node in gm.graph.nodes:
         if node.op != "placeholder":
             # This is the first node that is not a placeholder, insert the copy_ node before it.
-            for buffer in shared_buffers_not_mutated:
+            for buffer in shared_buffers_in_graph:
                 with gm.graph.inserting_before(node) as insert_node:
                     # reverse lookup dict
                     buffer_input_name = [
@@ -222,18 +225,53 @@ def add_buffer_mutation_to_graph(
                     buffer_input_node = shared_buffer_input_name_to_node[
                         buffer_input_name
                     ]
-                    insert_node = gm.graph.call_function(
+                    insert_node = gm.graph.create_node(
+                        "call_function",
                         torch.ops.aten.copy_.default,
                         (buffer_input_node, buffer_input_node),
                     )
                     node.replace_input_with(buffer_input_node, insert_node)
                     # add recompile
+                    gm.recompile()
                     pass
             break
         pass
     pass
 
+    # add recompile
+
     print(f"graph_signature: {graph_signature}")
+
+
+def remove_copy_ops_with_same_src_and_target(
+    gm: torch.fx.GraphModule, graph_signature: ExportGraphSignature
+):
+    # Find and remove copy operations where source and target are the same
+    for node in gm.graph.nodes:
+        if (
+            node.op == "call_function"
+            # ops are edge variants:
+
+            and node.target._name == "aten::copy"
+            and node.target._overloadname == "default"
+        ):
+            # Check if source and target tensors are the same
+            src = node.args[1]  # Source tensor
+            target = node.args[0]  # Target tensor
+
+            if src == target:
+                output_args = [out_spec.arg.name for out_spec in graph_signature.output_specs]
+                # This should never be in output args - if it is, something is wrong
+                if node.name in output_args:
+                    raise ValueError(
+                        f"Found self-copy operation '{node.name}' in graph outputs. "
+                        "This indicates a problem with the graph transformation."
+                    )
+
+                # Replace all uses of this copy operation with the original tensor
+                node.replace_all_uses_with(src)
+                gm.graph.erase_node(node)
+    gm.recompile()
 
 
 ##############################################
@@ -316,7 +354,7 @@ class MultiEntryPointExporter:
                     raise ValueError(
                         f"Argument of {fn.__name__} (arg name: {key}.dynamic_dims) must be a dict with Dim values"
                     )
-    
+
         self.registered_method_dict[fn.__name__] = MethodRegistration(fn, kwargs)
 
     def register_shared_buffer(self, fqn: str):
@@ -420,7 +458,7 @@ class MultiEntryPointExporter:
                     print("--------------------------------")
                     print(f"Method Graph: {method}")
                     add_buffer_mutation_to_graph(
-                        method_graph,
+                        method_graph.graph_module,
                         method_graph.graph_signature,
                         self.registered_shared_buffers,
                     )
@@ -450,6 +488,12 @@ class MultiEntryPointExporter:
         edge_program: EdgeProgramManager = to_edge(
             self.method_graphs,
         )
+
+        for method in edge_program._edge_programs:
+            remove_copy_ops_with_same_src_and_target(
+                edge_program._edge_programs[method].graph_module,
+                edge_program._edge_programs[method].graph_signature,
+            )
 
         self.edge_program = edge_program
 

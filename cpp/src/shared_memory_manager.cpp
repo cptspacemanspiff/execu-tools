@@ -1,6 +1,7 @@
 #include "ExecuTools/shared_memory_manager.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
@@ -20,8 +21,10 @@ using executorch::runtime::MethodMeta;
 using executorch::runtime::Program;
 
 SharedMemoryManager::SharedMemoryManager(std::shared_ptr<Program> program,
-                                         std::vector<uint32_t> shared_mem_ids)
-    : program_(program), shared_memory_ids_(shared_mem_ids) {
+                                         std::vector<size_t> shared_mem_ids,
+                                         std::string init_method)
+    : program_(program), shared_memory_ids_(shared_mem_ids),
+      init_method_(init_method) {
   // get all methods in the program:
   auto num_methods = program_->num_methods();
   std::unordered_map<std::string, executorch::runtime::MethodMeta>
@@ -35,9 +38,19 @@ SharedMemoryManager::SharedMemoryManager(std::shared_ptr<Program> program,
     method_meta_map.emplace(
         std::make_pair(method_name.get(), method_meta.get()));
   }
+  // Check that the in init_method_ is in the method_meta_map:
+  auto it = method_meta_map.find(init_method_);
+  ET_CHECK_MSG(it != method_meta_map.end(),
+               "Init method %s not found, required for SharedMemoryManager",
+               init_method_.c_str()); //TODO: Death Test
+
+  // now that we have the init method, we allocate memory for it first (it has a complete view of the shared memory buffer.):
+  allocate_memory_for_method(it->first, it->second);
 
   for (const auto &method_pair : method_meta_map) {
-    allocate_memory_for_method(method_pair.first, method_pair.second);
+    if (method_pair.first != init_method_) { // skip init method, already allocated.
+      allocate_memory_for_method(method_pair.first, method_pair.second);
+    }
   }
 }
 
@@ -74,7 +87,8 @@ void SharedMemoryManager::allocate_memory_for_method(
       if (std::find(shared_memory_ids_.begin(), shared_memory_ids_.end(), id) ==
           shared_memory_ids_.end()) {
         normal_buffers.emplace_back(std::make_unique<uint8_t[]>(buffer_size));
-        arenas.emplace_back(Span<uint8_t>({normal_buffers.back().get(), buffer_size}));
+        arenas.emplace_back(
+            Span<uint8_t>({normal_buffers.back().get(), buffer_size}));
         ET_LOG(Info,
                "Allocated normal buffer for method %s, memory id %zu, size %zu",
                method_name.c_str(), id, buffer_size);
@@ -105,15 +119,17 @@ void SharedMemoryManager::allocate_memory_for_method(
                  method_name.c_str(), id, buffer_size);
         }
         // in both cases, add the buffer to the arena.
-        arenas.emplace_back(Span<uint8_t>({shared_memory_buffers_[id].first.get(),
-                          shared_memory_buffers_[id].second}));
+        arenas.emplace_back(
+            Span<uint8_t>({shared_memory_buffers_[id].first.get(),
+                           shared_memory_buffers_[id].second}));
       }
     }
 
     // we now have the arenas and normal buffers (holding non-shared
     // memory).place them into a method storage object, and save as private
     // member.
-    MethodDataStore method_data_store{std::move(arenas), std::move(normal_buffers)};
+    MethodDataStore method_data_store{std::move(arenas),
+                                      std::move(normal_buffers)};
     auto pair = method_data_store_map_.emplace(
         std::make_pair(method_name, std::move(method_data_store)));
     if (!pair.second) {
@@ -122,7 +138,7 @@ void SharedMemoryManager::allocate_memory_for_method(
     }
   }
   // this is stupid, lookup the arenas we just put in, but we just moved alot of
-  // stuff w/ unique_ptr so some things are invalidated. dont you love c++, 
+  // stuff w/ unique_ptr so some things are invalidated. dont you love c++,
   // footguns abound.
   auto arenas_data = method_data_store_map_.at(method_name).arenas.data();
   auto arenas_size = method_data_store_map_.at(method_name).arenas.size();
@@ -133,4 +149,3 @@ void SharedMemoryManager::allocate_memory_for_method(
   method_allocator_map_.insert(
       std::make_pair(method_name, method_allocator_ptr));
 }
-
