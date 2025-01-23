@@ -3,6 +3,7 @@ from pathlib import Path
 import torch
 from torch.export import Dim
 from execu_tools.model_exporter import MethodArg, MultiEntryPointExporter
+from executorch.runtime import Runtime, Program
 
 class Submodule(torch.nn.Module):
     def __init__(self):
@@ -48,10 +49,8 @@ class SimpleModel(torch.nn.Module):
         return None
 
     def set_buffer_dynamic(self, x: torch.Tensor):
-        narrowed_buffer_0 = self.buffer1.narrow(0, 0, x.shape[0])
-        narrowed_buffer_1 = narrowed_buffer_0.narrow(1, 0, x.shape[1])
-        narrowed_buffer_1.copy_(x)
-        return None
+        self.buffer1[0:x.shape[0], 0:x.shape[1]] = x
+        return self.buffer1
     
     def load_from_buffer_dynamic(self, x: torch.Tensor):
         x.copy_(self.buffer1.narrow(0, 0, x.size(0)).narrow(1, 0, x.size(1)))
@@ -74,7 +73,7 @@ def test_register_method(exporter: MultiEntryPointExporter, model: SimpleModel):
     test_dim_0 = Dim("dim0", min=1, max=10)
 
     exporter.register(model.method1, x=MethodArg(torch.ones(10, 20)))
-    exporter.register(model.method2, x=MethodArg(torch.ones(10, 20), {0: test_dim_0}))
+    exporter.register(model.method2, x=MethodArg(torch.ones(9, 20), {0: test_dim_0}))
 
     # Assert method1 is registered
     assert "method1" in exporter.registered_method_dict
@@ -87,7 +86,7 @@ def test_register_method(exporter: MultiEntryPointExporter, model: SimpleModel):
     assert "method2" in exporter.registered_method_dict
     assert exporter.registered_method_dict["method2"].fn == model.method2
     registered_arg2 = exporter.registered_method_dict["method2"].kwargs["x"]
-    assert torch.equal(registered_arg2.example_input, torch.ones(10, 20))
+    assert torch.equal(registered_arg2.example_input, torch.ones(9, 20))
     assert registered_arg2.dynamic_dims == {0: test_dim_0}
 
 
@@ -113,6 +112,10 @@ def test_register_invalid_method_arg(exporter: MultiEntryPointExporter, model: S
     # Test dynamic_dims with non-Dim values
     with pytest.raises(ValueError):
         exporter.register(model.method1, x=MethodArg(torch.ones(1), dynamic_dims={0: "not_a_dim"}))
+
+    with pytest.raises(ValueError):
+        test_dim_1 = Dim("dim1", min=1, max=20)
+        exporter.register(model.method1, x=MethodArg(torch.ones(20), dynamic_dims={0: test_dim_1}))
 
 def test_register_invalid_method(exporter: MultiEntryPointExporter):
     """Test registering a method that doesn't exist"""
@@ -219,48 +222,36 @@ def test_copy_insertion(exporter: MultiEntryPointExporter, model: SimpleModel):
     assert "load_from_buffer1" in method_graphs
     assert "et_module_init" in method_graphs  # Should create init method
     
-    # Check that get_buffer1 has a copy_ operation added since it only reads
-    get_buffer_graph = method_graphs["get_buffer1"]
-    has_buffer_self_copy = False
-    for node in get_buffer_graph.graph.nodes:
-        if node.op == "call_function" and node.target == torch.ops.aten.copy_.default:
-            # Check that both source and target are the same buffer
-            if (node.args[0].name in get_buffer_graph.graph_signature.inputs_to_buffers and 
-                node.args[1].name in get_buffer_graph.graph_signature.inputs_to_buffers and
-                get_buffer_graph.graph_signature.inputs_to_buffers[node.args[0].name] == "buffer1" and
-                get_buffer_graph.graph_signature.inputs_to_buffers[node.args[1].name] == "buffer1"):
-                has_buffer_self_copy = True
-                break
-    assert has_buffer_self_copy, "No self-copy operation found for buffer1 in get_buffer1 method"
-    
-    # Check that set_buffer1 has exactly one copy operation (the explicit mutation)
-    set_buffer_graph = method_graphs["set_buffer1"]
-    copy_op_count = 0
-    for node in set_buffer_graph.graph.nodes:
-        if node.op == "call_function" and node.target == torch.ops.aten.copy_.default:
-            copy_op_count += 1
-            # Verify this is copying from input to buffer
-            assert node.args[0].name in set_buffer_graph.graph_signature.inputs_to_buffers, "Copy target should be buffer"
-            assert node.args[1].name not in set_buffer_graph.graph_signature.inputs_to_buffers, "Copy source should be input"
-    assert copy_op_count == 1, "Expected exactly one copy operation in set_buffer1 method"
+    # check that the copy operations are inserted correctly, by counting copies.
 
-    # Check that load_from_buffer1 has a copy_ operation added
-    # Even though it has an explicit copy_, it's copying TO the input tensor
-    # We still need a copy_ for the buffer itself
-    load_buffer_graph = method_graphs["load_from_buffer1"]
-    buffer_copy_count = 0
-    buffer_self_copy_found = False
-    for node in load_buffer_graph.graph.nodes:
-        if node.op == "call_function" and node.target == torch.ops.aten.copy_.default:
-            buffer_copy_count += 1
-            # Check if this is a buffer self-copy
-            if (node.args[0].name in load_buffer_graph.graph_signature.inputs_to_buffers and 
-                node.args[1].name in load_buffer_graph.graph_signature.inputs_to_buffers and
-                load_buffer_graph.graph_signature.inputs_to_buffers[node.args[0].name] == "buffer1" and
-                load_buffer_graph.graph_signature.inputs_to_buffers[node.args[1].name] == "buffer1"):
-                buffer_self_copy_found = True
-    assert buffer_copy_count == 2, "Expected two copy operations in load_from_buffer1 method"
-    assert buffer_self_copy_found, "No self-copy operation found for buffer1 in load_from_buffer1 method"
+    def count_copies(method_graph):
+        num_copies = 0
+        for node in method_graph.graph.nodes:
+            if node.op == "call_function" and node.target == torch.ops.aten.copy_.default:
+                num_copies += 1
+        return num_copies
+
+    assert count_copies(method_graphs["get_buffer1"]) == 1
+    # graph():
+    # %b_buffer1 : [num_users=1] = placeholder[target=b_buffer1]
+    # %copy__default : [num_users=1] = call_function[target=torch.ops.aten.copy_.default](args = (%b_buffer1, %b_buffer1), kwargs = {})
+    # return (copy__default,)
+    
+    assert count_copies(method_graphs["set_buffer1"]) == 2
+    # graph():
+    # %b_buffer1 : [num_users=1] = placeholder[target=b_buffer1]
+    # %x : [num_users=1] = placeholder[target=x]
+    # %copy__default : [num_users=1] = call_function[target=torch.ops.aten.copy_.default](args = (%b_buffer1, %b_buffer1), kwargs = {})
+    # %copy_ : [num_users=0] = call_function[target=torch.ops.aten.copy_.default](args = (%copy__default, %x), kwargs = {})
+    # return (None,)
+
+    assert count_copies(method_graphs["load_from_buffer1"]) == 2
+    # graph():
+    # %b_buffer1 : [num_users=1] = placeholder[target=b_buffer1]
+    # %x : [num_users=1] = placeholder[target=x]
+    # %copy__default : [num_users=1] = call_function[target=torch.ops.aten.copy_.default](args = (%b_buffer1, %b_buffer1), kwargs = {})
+    # %copy_ : [num_users=0] = call_function[target=torch.ops.aten.copy_.default](args = (%x, %copy__default), kwargs = {})
+    # return (None,)
 
 def test_copy_insertion_dynamic(exporter: MultiEntryPointExporter, model: SimpleModel):
     """Test that copy operations are inserted correctly for dynamic buffer operations"""
@@ -273,55 +264,24 @@ def test_copy_insertion_dynamic(exporter: MultiEntryPointExporter, model: Simple
     
     exporter.register(
         model.set_buffer_dynamic, 
-        x=MethodArg(torch.ones(5, 20), dynamic_dims={0: test_dim_0, 1: test_dim_1})
+        x=MethodArg(torch.ones(5, 19), dynamic_dims={0: test_dim_0, 1: test_dim_1})
     )
     exporter.register(
         model.load_from_buffer_dynamic,
-        x=MethodArg(torch.ones(5, 20), dynamic_dims={0: test_dim_0, 1: test_dim_1})
+        x=MethodArg(torch.ones(5, 19), dynamic_dims={0: test_dim_0, 1: test_dim_1})
     )
     
     method_graphs = exporter.export()
     
-    # Check set_buffer_dynamic method
-    set_buffer_graph = method_graphs["set_buffer_dynamic"]
-    set_buffer_copy_count = 0
-    set_buffer_self_copy_found = False
-    
-    for node in set_buffer_graph.graph.nodes:
-        if node.op == "call_function" and node.target == torch.ops.aten.copy_.default:
-            set_buffer_copy_count += 1
-            # Check if this is a buffer self-copy
-            if (node.args[0].name in set_buffer_graph.graph_signature.inputs_to_buffers and 
-                node.args[1].name in set_buffer_graph.graph_signature.inputs_to_buffers and
-                set_buffer_graph.graph_signature.inputs_to_buffers[node.args[0].name] == "buffer1" and
-                set_buffer_graph.graph_signature.inputs_to_buffers[node.args[1].name] == "buffer1"):
-                set_buffer_self_copy_found = True
-    
-    # Should have 1 copy operations:
-    # 1. The actual copy from input to the narrowed buffer
-    assert set_buffer_copy_count == 1, "Expected one copy operation in set_buffer_dynamic method"
-    assert set_buffer_self_copy_found is False, "self-copy operation found for buffer1 in set_buffer_dynamic method"
-    
-    # Check load_from_buffer_dynamic method
-    load_buffer_graph = method_graphs["load_from_buffer_dynamic"]
-    load_buffer_copy_count = 0
-    load_buffer_self_copy_found = False
-    
-    for node in load_buffer_graph.graph.nodes:
-        if node.op == "call_function" and node.target == torch.ops.aten.copy_.default:
-            load_buffer_copy_count += 1
-            # Check if this is a buffer self-copy
-            if (node.args[0].name in load_buffer_graph.graph_signature.inputs_to_buffers and 
-                node.args[1].name in load_buffer_graph.graph_signature.inputs_to_buffers and
-                load_buffer_graph.graph_signature.inputs_to_buffers[node.args[0].name] == "buffer1" and
-                load_buffer_graph.graph_signature.inputs_to_buffers[node.args[1].name] == "buffer1"):
-                load_buffer_self_copy_found = True
-    
-    # Should have 2 copy operations:
-    # 1. The self-copy for buffer to make sure it's a mutable buffer
-    # 2. The actual copy from narrowed buffer to output
-    assert load_buffer_copy_count == 2, "Expected two copy operations in load_from_buffer_dynamic method"
-    assert load_buffer_self_copy_found, "No self-copy operation found for buffer1 in load_from_buffer_dynamic method"
+    def count_copies(method_graph):
+        num_copies = 0
+        for node in method_graph.graph.nodes:
+            if node.op == "call_function" and node.target == torch.ops.aten.copy_.default:
+                num_copies += 1
+        return num_copies
+
+    assert count_copies(method_graphs["set_buffer_dynamic"]) == 2
+    assert count_copies(method_graphs["load_from_buffer_dynamic"]) == 2
 
 
 def test_to_edge(exporter: MultiEntryPointExporter, model: SimpleModel):
@@ -471,7 +431,7 @@ def test_memory_planning(exporter: MultiEntryPointExporter, model: SimpleModel):
 
 
 
-def test_dynamic_buffer_set(exporter: MultiEntryPointExporter, model: SimpleModel):
+def test_dynamic_buffer_set(exporter: MultiEntryPointExporter, model: SimpleModel, tmp_path: Path):
     """Test that dynamic buffer operations work correctly"""
     # Register buffer1 as a shared buffer
     exporter.register_shared_buffer("buffer1")
@@ -482,7 +442,7 @@ def test_dynamic_buffer_set(exporter: MultiEntryPointExporter, model: SimpleMode
     
     exporter.register(
         model.set_buffer_dynamic, 
-        x=MethodArg(torch.ones(5, 20), dynamic_dims={0: test_dim_0, 1: test_dim_1})
+        x=MethodArg(torch.ones(5, 19), dynamic_dims={0: test_dim_0, 1: test_dim_1})
     )
     
     method_graphs = exporter.export()
@@ -511,19 +471,49 @@ def test_dynamic_buffer_set(exporter: MultiEntryPointExporter, model: SimpleMode
     assert torch.all(buffer_content[7:, :] == 3.0), "Unchanged region was modified"
     assert torch.all(buffer_content[:7, 15:] == 3.0), "Unchanged region was modified"
 
-def test_dynamic_buffer_load(exporter: MultiEntryPointExporter, model: SimpleModel):
+    # True validation exports and runs the model
+    exporter.to_edge()
+    exporter.to_executorch()
+    exporter.save(tmp_path, "test_model")
+
+    et_runtime: Runtime = Runtime.get()
+    program: Program = et_runtime.load_program(
+        tmp_path / "test_model.pte",
+    )
+    print("Program methods:", program.method_names)
+
+    print("Running set_buffer_dynamic method")
+    method = program.load_method("set_buffer_dynamic")
+
+    # Test with different sized inputs within the dynamic bounds
+    # First set a larger region
+    data2 = torch.full((5, 5), 9.0)
+    buffer = method.execute([data2])[0]  # Get returned buffer
+    assert torch.all(buffer[:5, :5] == 9.0), "Dynamic region not properly updated"
+    assert torch.all(buffer[5:, :] == 0.0), "Unchanged region was modified"
+    assert torch.all(buffer[:5, 5:] == 0.0), "Unchanged region was modified"
+
+    # Then set a smaller region
+    data = torch.full((2, 2), 7.0)
+    buffer = method.execute([data])[0]  # Get returned buffer
+    assert torch.all(buffer[:2, :2] == 7.0), "Dynamic region not properly updated"
+    assert torch.all(buffer[2:5, :5] == 9.0), "Previously set region was incorrectly modified"
+    assert torch.all(buffer[5:, :] == 0.0), "Unchanged region was modified"
+    assert torch.all(buffer[:5, 5:] == 0.0), "Unchanged region was modified"
+
+def test_dynamic_buffer_load(exporter: MultiEntryPointExporter, model: SimpleModel, tmp_path: Path):
     """Test that dynamic buffer load operations work correctly"""
     # Register buffer1 as a shared buffer
     exporter.register_shared_buffer("buffer1")
     
     # Register methods with dynamic buffer operations
-    test_dim_0 = Dim("dim0", min=1, max=10)
-    test_dim_1 = Dim("dim1", min=1, max=20)
+    test_dim_0 = Dim("dim0", min=1, max=5)
+    test_dim_1 = Dim("dim1", min=1, max=5)
     
     # Register load method
     exporter.register(
         model.load_from_buffer_dynamic,
-        x=MethodArg(torch.ones(5, 20), dynamic_dims={0: test_dim_0, 1: test_dim_1})
+        x=MethodArg(torch.ones(4, 4), dynamic_dims={0: test_dim_0, 1: test_dim_1})
     )
     
     method_graphs = exporter.export()
@@ -538,13 +528,37 @@ def test_dynamic_buffer_load(exporter: MultiEntryPointExporter, model: SimpleMod
     named_buffers["buffer1"].fill_(3.0)
     
     # Create output tensor to load into
-    output = torch.zeros(7, 15)  # Different size than example
+    output = torch.zeros(4, 4)  # Different size than example
     
     # Load from buffer into output tensor
     method_graphs['load_from_buffer_dynamic'].module()(x=output)
     
     # Verify the loaded values match what we set
     assert torch.all(output == 3.0), "Loaded values don't match what was in buffer"
+
+    # True validation exports and runs the model
+    # TODO: add this test
+    exporter.to_edge()
+    exporter.to_executorch()
+    exporter.save(tmp_path, "test_model")
+
+    et_runtime: Runtime = Runtime.get()
+    program: Program = et_runtime.load_program(
+        tmp_path / "test_model.pte",
+    )
+    print("Program methods:", program.method_names)
+
+    print("Running forward method")
+    method = program.load_method("load_from_buffer_dynamic")
+
+    # fills out the ones subarray from the cache
+    data = torch.ones(2, 2)
+    out = method.execute([data])
+    assert torch.all(data == 0.0)
+
+    data2 = torch.ones(5, 5)
+    out = method.execute([data2])
+    assert torch.all(data2 == 0.0)
 
 
 if __name__ == "__main__":

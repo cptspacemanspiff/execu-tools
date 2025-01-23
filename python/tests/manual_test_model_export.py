@@ -22,13 +22,13 @@ class StatefulModel(torch.nn.Module):
     # need sliceing here:
     def set_cache(self, data: torch.Tensor):
         self.cache[0 : data.shape[0], 0 : data.shape[1]] = data
-        return self.cache
+        return None
 
     # need narrow here:
     def get_cache(self, data: torch.Tensor):
         narrowed_cache = self.cache.narrow(0, 0, data.size(0)).narrow(1, 0, data.size(1))
         data.copy_(narrowed_cache)
-        return self.cache
+        return None
 
 
 def get_test_dir() -> Path:

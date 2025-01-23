@@ -129,8 +129,8 @@ class SharedMemoryPlanningPass(MemoryPlanningPass):
                             buffer_name
                         ]["mem_offset"]
                         pass
-            
-            parent_result.graph_module.meta["non_const_buffer_sizes"][self.shared_mem_id] = self.shared_buffer_size
+            if len(self.shared_buffers) > 0:
+                parent_result.graph_module.meta["non_const_buffer_sizes"][self.shared_mem_id] = self.shared_buffer_size
 
         # we need to go back through and
 
