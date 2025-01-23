@@ -283,6 +283,7 @@ def test_copy_insertion_dynamic(exporter: MultiEntryPointExporter, model: Simple
     assert count_copies(method_graphs["set_buffer_dynamic"]) == 2
     assert count_copies(method_graphs["load_from_buffer_dynamic"]) == 2
 
+# todo test copy removal.
 
 def test_to_edge(exporter: MultiEntryPointExporter, model: SimpleModel):
     """Test converting to edge format with multiple methods"""
