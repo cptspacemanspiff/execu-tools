@@ -15,7 +15,7 @@ namespace executools {
  * handle running the model, order of ops, etc.
  *
  */
-class MultiEntryPointRunner {
+ExecuTools_EXPORT class MultiEntryPointRunner {
 public:
   MultiEntryPointRunner(
       const std::string &model_path,

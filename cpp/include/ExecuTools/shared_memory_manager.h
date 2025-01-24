@@ -14,7 +14,7 @@
 
 namespace executools {
 
-class SharedMemoryManager {
+ExecuTools_EXPORT class SharedMemoryManager {
 public:
   SharedMemoryManager(std::shared_ptr<executorch::runtime::Program> program,
                       std::vector<size_t> shared_mem_ids={1},// TODO: get this from program (passed throgh constant methods?).
