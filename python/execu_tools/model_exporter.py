@@ -251,7 +251,7 @@ def remove_copy_ops_with_same_src_and_target(
         if (
             node.op == "call_function"
             # ops are edge variants:
-
+            and hasattr(node.target, "_name") and hasattr(node.target, "_overloadname")
             and node.target._name == "aten::copy"
             and node.target._overloadname == "default"
         ):

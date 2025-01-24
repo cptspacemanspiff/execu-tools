@@ -283,8 +283,8 @@ def test_copy_insertion_dynamic(exporter: MultiEntryPointExporter, model: Simple
     assert count_copies(method_graphs["set_buffer_dynamic"]) == 2
     assert count_copies(method_graphs["load_from_buffer_dynamic"]) == 2
 
-# todo test copy removal.
-
+# todo test copy removal, multiply copy op removal.
+# TODO add bug where one of the methods in a method dictionary to_edge has a to_device call based on the device of the input tensor. This tensor is a constant and shared between both devices.
 def test_to_edge(exporter: MultiEntryPointExporter, model: SimpleModel):
     """Test converting to edge format with multiple methods"""
     exporter.register(model.method1, x=MethodArg(torch.ones(10, 20)))
