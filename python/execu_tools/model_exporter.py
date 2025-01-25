@@ -78,6 +78,7 @@ class SharedMemoryPlanningPass(MemoryPlanningPass):
 
         self.shared_mem_id = 2
         self.shared_buffer_size = 0
+
     def run(
         self,
         graph_module: torch.fx.GraphModule,
@@ -111,7 +112,9 @@ class SharedMemoryPlanningPass(MemoryPlanningPass):
                             "mem_obj_id": node.meta["spec"].mem_obj_id,
                             "mem_offset": node.meta["spec"].mem_offset,
                         }
-            self.shared_buffer_size = parent_result.graph_module.meta["non_const_buffer_sizes"][self.shared_mem_id]
+            self.shared_buffer_size = parent_result.graph_module.meta[
+                "non_const_buffer_sizes"
+            ][self.shared_mem_id]
         else:
             for node in parent_result.graph_module.graph.nodes:
                 if _is_buffer(node, graph_signature):
@@ -122,15 +125,17 @@ class SharedMemoryPlanningPass(MemoryPlanningPass):
                         node.meta["spec"].mem_id = self.shared_buffers_memory_layout[
                             buffer_name
                         ]["mem_id"]
-                        node.meta["spec"].mem_obj_id = self.shared_buffers_memory_layout[
-                            buffer_name
-                        ]["mem_obj_id"]
-                        node.meta["spec"].mem_offset = self.shared_buffers_memory_layout[
-                            buffer_name
-                        ]["mem_offset"]
+                        node.meta["spec"].mem_obj_id = (
+                            self.shared_buffers_memory_layout[buffer_name]["mem_obj_id"]
+                        )
+                        node.meta["spec"].mem_offset = (
+                            self.shared_buffers_memory_layout[buffer_name]["mem_offset"]
+                        )
                         pass
             if len(self.shared_buffers) > 0:
-                parent_result.graph_module.meta["non_const_buffer_sizes"][self.shared_mem_id] = self.shared_buffer_size
+                parent_result.graph_module.meta["non_const_buffer_sizes"][
+                    self.shared_mem_id
+                ] = self.shared_buffer_size
 
         # we need to go back through and
 
@@ -251,7 +256,8 @@ def remove_copy_ops_with_same_src_and_target(
         if (
             node.op == "call_function"
             # ops are edge variants:
-            and hasattr(node.target, "_name") and hasattr(node.target, "_overloadname")
+            and hasattr(node.target, "_name")
+            and hasattr(node.target, "_overloadname")
             and node.target._name == "aten::copy"
             and node.target._overloadname == "default"
         ):
@@ -260,7 +266,9 @@ def remove_copy_ops_with_same_src_and_target(
             target = node.args[0]  # Target tensor
 
             if src == target:
-                output_args = [out_spec.arg.name for out_spec in graph_signature.output_specs]
+                output_args = [
+                    out_spec.arg.name for out_spec in graph_signature.output_specs
+                ]
                 # This should never be in output args - if it is, something is wrong
                 if node.name in output_args:
                     raise ValueError(
@@ -354,7 +362,7 @@ class MultiEntryPointExporter:
                     raise ValueError(
                         f"Argument of {fn.__name__} (arg name: {key}.dynamic_dims) must be a dict with Dim values"
                     )
-            
+
             # Check that the shape of the example input is not the same as the shape of the dynamic dims: (this is a bug?)
             for dim_idx, dim in arg.dynamic_dims.items():
                 dynamic_min = dim.min
@@ -388,7 +396,9 @@ class MultiEntryPointExporter:
                     f"register_shared_buffer: Buffer {fqn} is not persistent in {self.model.__class__.__name__}"
                 )
             # copy the buffer to avoid touching the original buffer, when it is used for initialization.
-            self.registered_shared_buffers[fqn] = SharedBufferRegistration(copy.deepcopy(object))
+            self.registered_shared_buffers[fqn] = SharedBufferRegistration(
+                copy.deepcopy(object)
+            )
         elif isinstance(object, torch.nn.Module):
             # add all buffers that are not marked as non persistent:
             for name, buffer in object.named_buffers():  # object is a buffer.
@@ -492,7 +502,9 @@ class MultiEntryPointExporter:
     #         raise ValueError("No method graphs found. Please trace the model first.")
     #     pass
 
-    def to_edge(self, partitioners: list = None) -> EdgeProgramManager:
+    def to_edge(
+        self, constant_methods: dict, partitioners: list = None
+    ) -> EdgeProgramManager:
         # export the model graphs to the edge:
         if len(self.method_graphs) == 0:
             raise ValueError(
@@ -501,6 +513,7 @@ class MultiEntryPointExporter:
 
         edge_program: EdgeProgramManager = to_edge(
             self.method_graphs,
+            constant_methods=constant_methods,
         )
 
         for method in edge_program._edge_programs:
