@@ -1,0 +1,84 @@
+# English Tokenization Test File
+
+# Standard Words
+Hello
+world
+programming
+testing
+example
+
+# Contractions
+I'm
+you're
+we'll
+isn't
+can't
+wouldn't
+
+# Hyphenated Words
+mother-in-law
+well-known
+self-esteem
+day-to-day
+state-of-the-art
+
+# Compound Words
+basketball
+sunflower
+timestamp
+underestimate
+background
+
+# Words with Apostrophes
+rock'n'roll
+O'Connor
+don't
+they've
+class's
+
+# Special Characters and Emojis
+hello!
+@username
+#hashtag
+50%
+$100
+&symbol
+*star
+(hello)
+[world]
+{test}
+😊👍🏽
+
+# Numbers and Alphanumeric Strings
+1234567890
+3.14159
+1st
+2nd
+test123
+abc123
+
+# Rare Words and Terms
+quizzical
+xylophone
+pneumonoultramicroscopicsilicovolcanoconiosis
+floccinaucinihilipilification
+antidisestablishmentarianism
+
+# Mixed Languages
+bonjour
+hola
+你好
+こんにちは
+안녕하세요
+
+# URLs and Emails
+http://example.com
+https://www.test-site.org
+email@example.com
+user.name+tag@example.co.uk
+
+# Random Sequences
+abc_def-ghi.jkl
+A1B2C3D4E5
+z.y.x.w.v.u.t
+lorem-ipsum-dolor-sit-amet

@@ -5,10 +5,10 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "test_tokenizer_export",
+            "name": "test_tokenizer_converters",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/python/tests/test_tokenizer_export.py",
+            "program": "${workspaceFolder}/python/tests/test_tokenizer_converters.py",
             "console": "integratedTerminal",
             "justMyCode": false
         },

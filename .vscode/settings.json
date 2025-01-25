@@ -6,5 +6,6 @@
     "python.testing.pytestEnabled": true,
     // "python.testing.cwd": "${workspaceFolder}/cpp/build/_deps/executorch",
     "python.testing.cwd": "${workspaceFolder}/python",
-    "python.testing.promptToConfigure": true
+    "python.testing.promptToConfigure": true,
+    "python.analysis.userFileIndexingLimit": 6000
 }
