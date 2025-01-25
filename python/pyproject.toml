@@ -8,6 +8,7 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.10"
 sentencepiece = "^0.2.0"
+protobuf = "^5.29.3"
 
 
 [build-system]

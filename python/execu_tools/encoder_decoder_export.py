@@ -9,27 +9,22 @@ from transformers.convert_slow_tokenizer import convert_slow_tokenizer
 
 
 class EncoderDecoderWrapper(torch.nn.Module):
-    tokenizer : TokenizerFast
-    def __init__(self, model, cache, tokenizer):
+    def __init__(self, model, cache, tokenizer = None):
         super().__init__()
         self.model = model
 
         # convert the slow tokenizer to a fast tokenizer:
-        if not tokenizer.is_fast:
-            try:
-                tokenizer : TokenizerFast = convert_slow_tokenizer(tokenizer)
-            except Exception as e:
-                raise ValueError("convert_slow_tokenizer(tokenizer) failed with: "+e)
+        # if not tokenizer.is_fast:
+        #     try:
+        #         tokenizer : TokenizerFast = convert_slow_tokenizer(tokenizer)
+        #     except Exception as e:
+        #         raise ValueError("convert_slow_tokenizer(tokenizer) failed with: "+e)
                 
 
 
-        assert tokenizer.is_fast is True, "Tokenizer must be fast"
-        self.tokenizer = tokenizer
+        # assert tokenizer.is_fast is True, "Tokenizer must be fast"
+        # self.tokenizer = tokenizer
 
-        self.tokenizer_type = 
-        self.shared_tokenizer : bool = False
-        self.encoder_tokenizer_blob = b''
-        self.decoder_tokenizer_blob = b''
 
         self.shared_fqn = []
         # add the cache:
