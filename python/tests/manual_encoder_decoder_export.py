@@ -9,7 +9,7 @@ from pathlib import Path
 
 def setup_model_and_tokenizer(model_name="Helsinki-NLP/opus-mt-en-fr", max_length=25):
     """Setup model and tokenizer with specified parameters."""
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 
     model.generation_config.update(
@@ -21,7 +21,7 @@ def setup_model_and_tokenizer(model_name="Helsinki-NLP/opus-mt-en-fr", max_lengt
 
 
 def setup_wrapper(
-    model, max_cache_len_encoder=40, max_cache_len_decoder=80, max_batch_size=1
+    model, tokenizer, max_cache_len_encoder=40, max_cache_len_decoder=80, max_batch_size=1
 ):
     """Create cache and wrapper with given parameters."""
     encoder_cache = StaticCache(
@@ -35,7 +35,7 @@ def setup_wrapper(
         max_batch_size=max_batch_size,
     )
     cache = EncoderDecoderCache(decoder_cache, encoder_cache)
-    return EncoderDecoderWrapper(model, cache)
+    return EncoderDecoderWrapper(model, cache, tokenizer)
 
 
 def export_model():
@@ -49,6 +49,7 @@ def export_model():
         model, tokenizer = setup_model_and_tokenizer()
         model_wrapper = setup_wrapper(
             model,
+            tokenizer,
             max_cache_len_encoder=max_cache_len_encoder+1, #TODO: why do we need to add 1 here?
             max_cache_len_decoder=max_cache_len_decoder,
             max_batch_size=max_batch_size,
@@ -115,6 +116,9 @@ def export_model():
             key: value.example_input for key, value in export_example_decode.items()
         }
         model_wrapper.decode(**input_example_decode)
+
+        # get a list of fqn to register as shared from the model_wrapper.
+        exporter.register_shared_buffers(model_wrapper.get_shared_fqn())
 
         # Register the methods
         exporter.register(model_wrapper.reset_encode_prefill, **export_example_reset_encode_prefill)

@@ -3,13 +3,38 @@ from transformers.modeling_outputs import BaseModelOutput
 from transformers.cache_utils import EncoderDecoderCache
 from transformers.generation.stopping_criteria import StoppingCriteriaList
 from transformers.generation.logits_process import LogitsProcessorList
+from transformers.tokenization_utils_fast import TokenizerFast
+from transformers.convert_slow_tokenizer import convert_slow_tokenizer
+
 
 
 class EncoderDecoderWrapper(torch.nn.Module):
-    def __init__(self, model, cache):
+    tokenizer : TokenizerFast
+    def __init__(self, model, cache, tokenizer):
         super().__init__()
         self.model = model
+
+        # convert the slow tokenizer to a fast tokenizer:
+        if not tokenizer.is_fast:
+            try:
+                tokenizer : TokenizerFast = convert_slow_tokenizer(tokenizer)
+            except Exception as e:
+                raise ValueError("convert_slow_tokenizer(tokenizer) failed with: "+e)
+                
+
+
+        assert tokenizer.is_fast is True, "Tokenizer must be fast"
+        self.tokenizer = tokenizer
+
+        self.tokenizer_type = 
+        self.shared_tokenizer : bool = False
+        self.encoder_tokenizer_blob = b''
+        self.decoder_tokenizer_blob = b''
+
+        self.shared_fqn = []
+        # add the cache:
         self.cache = cache
+        self.shared_fqn.append("cache")
         if type(self.cache) is EncoderDecoderCache:
             self_attn_cache = self.cache.self_attention_cache
             cross_attn_cache = self.cache.cross_attention_cache
@@ -28,6 +53,8 @@ class EncoderDecoderWrapper(torch.nn.Module):
             "encoder_output",
             torch.zeros(max_batch_size, max_encoder_sequence_length, 512),
         )
+
+        self.shared_fqn.append("encoder_output")
 
         # setup static things that are not part of execution (follow generate roughly)
         # get the bos id
@@ -54,13 +81,15 @@ class EncoderDecoderWrapper(torch.nn.Module):
         self.register_buffer(
             "unfinished_sequences", torch.ones(max_batch_size, dtype=torch.long)
         )
+        self.shared_fqn.append("unfinished_sequences")
 
         self.register_buffer("cache_position", torch.zeros((1,), dtype=torch.long))
+        self.shared_fqn.append("cache_position")
 
         self.register_buffer(
             "next_tokens", torch.zeros((max_batch_size, 1), dtype=torch.long)
         )  # should be 2d, with batch size as first dim.
-
+        self.shared_fqn.append("next_tokens")
         # get the logits processors:
         logits_processor = LogitsProcessorList()  # can override if needed
         self.prepared_logits_processor = self.model._get_logits_processor(
@@ -87,11 +116,17 @@ class EncoderDecoderWrapper(torch.nn.Module):
                 )
             ),
         )
-
+        self.shared_fqn.append("decoder_attention_mask")
     def format_prompt(self, prompt=None):
         # idea is to format the prompt in a standard way, TODO: reevaluate this.
         # Marian models just have start of string token, so we just return that.
         return self.generation_config._decoder_start_token_tensor.unsqueeze(0)
+
+    def get_shared_fqn(self):
+        return self.shared_fqn
+
+    def get_tokenizer_json(self):
+        return self.tokenizer.to_json_string()
 
     def _process_next_tokens(
         self, batch_size, cache_position, next_token_scores, prev_decoder_outputs

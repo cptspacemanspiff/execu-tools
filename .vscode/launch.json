@@ -5,6 +5,14 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "test_tokenizer_export",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/python/tests/test_tokenizer_export.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
             "name": "manual_test_model_export",
             "type": "debugpy",
             "request": "launch",

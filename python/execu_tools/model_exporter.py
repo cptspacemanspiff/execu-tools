@@ -306,7 +306,7 @@ class SharedBufferRegistration:
 class MultiEntryPointExporter:
     model: torch.nn.Module
     registered_method_dict: dict[str, MethodRegistration]
-    registered_shared_buffers: dict[str, tuple[torch.Tensor, Callable]]
+    registered_shared_buffers: dict[str, SharedBufferRegistration]
 
     method_graphs: dict[str, ExportedProgram]
 
@@ -388,7 +388,7 @@ class MultiEntryPointExporter:
                     f"register_shared_buffer: Buffer {fqn} is not persistent in {self.model.__class__.__name__}"
                 )
             # copy the buffer to avoid touching the original buffer, when it is used for initialization.
-            self.registered_shared_buffers[fqn] = copy.deepcopy(object)
+            self.registered_shared_buffers[fqn] = SharedBufferRegistration(copy.deepcopy(object))
         elif isinstance(object, torch.nn.Module):
             # add all buffers that are not marked as non persistent:
             for name, buffer in object.named_buffers():  # object is a buffer.
@@ -399,12 +399,16 @@ class MultiEntryPointExporter:
                 f"register_shared_buffer: Object {fqn} in {self.model.__class__.__name__} must be a Tensor or Module"
             )
 
+    def register_shared_buffers(self, fqn: list[str]):
+        for fqn in fqn:
+            self.register_shared_buffer(fqn)
+
     def export(self) -> dict[str, ExportedProgram]:
         if len(self.registered_shared_buffers) > 0:
             # copy this so that it can be captured by the init function:
             default_dict = {}
             for key, val in self.registered_shared_buffers.items():
-                default_dict[key] = val[1]
+                default_dict[key] = val.buffer
 
             self.model.__et_export_shared_buffers_defaults = default_dict
 
