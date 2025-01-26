@@ -39,8 +39,10 @@ FetchContent_MakeAvailable(executorch)
 
 FetchContent_Declare(
     tokenizers-cpp
-    GIT_REPOSITORY https://github.com/mlc-ai/tokenizers-cpp.git
-    GIT_TAG        main
+    # GIT_REPOSITORY https://github.com/mlc-ai/tokenizers-cpp.git
+    # GIT_TAG        main
+    GIT_REPOSITORY https://github.com/cptspacemanspiff/tokenizers-cpp.git
+    GIT_TAG        return-attn-mask-from-hftokenizer
 
     OVERRIDE_FIND_PACKAGE 
     SYSTEM

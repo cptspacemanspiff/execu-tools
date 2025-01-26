@@ -22,6 +22,8 @@ public:
       executorch::extension::Module::LoadMode load_mode,
       std::unique_ptr<executorch::runtime::EventTracer> event_tracer);
 
+  std::vector<uint8_t> get_event_tracer_dump();
+
 protected:
   /**
    * @brief Loads a single method into the program.
@@ -46,7 +48,7 @@ protected:
   /**
    * @brief Validates that the method can be called based on the metadata of the
    * method (ie it creates junk values an sends them to the module, basically a
-   * check that nothing segfaults or crashes, or errors.)
+   * check that nothing segfaults, crashes, or errors.)
    * Generally just creates zeros of the all valid shapes and types and sends
    * them in.
    *

@@ -1,5 +1,9 @@
 #include <CLI/CLI.hpp>
 #include <ExecuTools/encoder_decoder_runner.h>
+#include <executorch/devtools/etdump/etdump_flatcc.h>
+#include <executorch/runtime/core/error.h>
+#include <executorch/runtime/platform/assert.h>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -21,13 +25,40 @@ int main(int argc, char **argv) {
 
   // Parse the command line
   CLI11_PARSE(app, argc, argv);
-
   EncoderDecoderRunner runner(
       model_path, executorch::extension::Module::LoadMode::MmapUseMlock,
-      nullptr);
+      std::make_unique<executorch::etdump::ETDumpGen>());
+
+  // create a decoder callback lambda:
+  auto decoder_callback =
+      [](const std::vector<std::string> &new_token_strings) {
+        std::cout << new_token_strings[0]; // TODO: print all of them
+      };
+
+  runner.set_decoder_callback(decoder_callback);
+
+  std::cout << "Running runner, with input strings: " << std::endl;
+  for (const auto &input_string : input_strings) {
+    std::cout << "  '" << input_string << "'" << std::endl;
+  }
 
   // Run the runner
-//   runner.run(input_strings);
+  auto maybe_result = runner.run(input_strings);
+  // write out the et_dump
+
+  auto buffer = runner.get_event_tracer_dump();
+
+  // write out the et_dump
+  std::ofstream ofs("et_dump.bin", std::ios::out | std::ios::binary);
+  ofs.write(reinterpret_cast<const char *>(buffer.data()), buffer.size());
+  ofs.close();
+
+
+  ET_CHECK_MSG(maybe_result == executorch::runtime::Error::Ok,
+               "\n    Decoder runner run, ran into something.");
+
+  // torch::executor::etdump_result result = runner.save_event_tracer_dump();
+
 
   return 0;
 }

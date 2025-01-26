@@ -22,6 +22,7 @@ cmt_add_executable(ExecuToolsEncoderDecoder
                    manual_encoder_decoder_runner.cpp)
 
 target_link_libraries(${CMT_LAST_TARGET} PRIVATE ExecuTools::ExecuTools
+                                                etdump
                                                  CLI11::CLI11)
 
 # ##############################################################################

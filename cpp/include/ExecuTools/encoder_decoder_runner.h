@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <ExecuTools/multi_entry_point_runner.h>
+#include <tokenizers_c.h>
 #include <tokenizers_cpp.h>
 namespace executools {
 
@@ -25,7 +26,8 @@ public:
    *
    * @param decoder_callback
    */
-  void set_decoder_callback(std::function<void(std::string)> decoder_callback);
+  void set_decoder_callback(
+      std::function<void(const std::vector<std::string> &)> decoder_callback);
 
   /**
    * @brief Run the encoder decoder runner.
@@ -33,18 +35,19 @@ public:
    * @param input_strings text strings to encode, and then decode, in a batch.
    * tokenization, masking is handled internally.
    */
-  void run(const std::vector<std::string> &input_strings);
+  executorch::runtime::Error run(const std::vector<std::string> &input_strings);
 
 protected:
   // init tokenizer:
-  void initialize_tokenizer();
+  executorch::runtime::Error initialize_tokenizer();
 
-  std::unique_ptr<tokenizers::Tokenizer> tokenizer_;
+  // use the HFTokenizer class (want access to the special tokens flag)
+  std::unique_ptr<tokenizers::HFTokenizer> tokenizer_;
 
   // hf tokenizer json:
   std::vector<uint8_t> hf_tokenizer_json_;
   // decoder callback:
-  std::function<void(std::string)> decoder_callback_;
+  std::function<void(const std::vector<std::string> &)> decoder_callback_;
 };
 
 } // namespace executools

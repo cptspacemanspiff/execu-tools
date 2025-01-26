@@ -4,8 +4,9 @@ cmt_add_library(ExecuTools)
 target_sources(
   ExecuTools PRIVATE shared_memory_manager.cpp encoder_decoder_runner.cpp
                      multi_entry_point_runner.cpp)
-target_link_libraries(ExecuTools PUBLIC executorch extension_data_loader
-                                        extension_module_static tokenizers_cpp)
+target_link_libraries(
+  ExecuTools PUBLIC executorch extension_data_loader extension_module_static
+                    extension_tensor tokenizers_cpp portable_ops_lib)
 
 cmt_target_headers(
   ExecuTools PUBLIC BASE_DIRS ${PROJECT_SOURCE_DIR}/include FILES

@@ -52,6 +52,50 @@
             "console": "integratedTerminal"
         },
         {
+            "name": "Inspector CLI",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "executorch.devtools.inspector.inspector_cli",
+            "args": [
+                "--etdump_path",
+                "${workspaceFolder}/cpp/test/et_dump.bin",
+                "--etrecord_path",
+                "${workspaceFolder}/python/tests/export_artifacts/opus_encoder_decoder_model.etrecord"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "cpp encoder decoder runner",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceRoot}/cpp/build/stage/bin/ExecuToolsEncoderDecoder",
+            "args": [
+                "--model",
+                "${workspaceRoot}/python/tests/export_artifacts/opus_encoder_decoder_model.pte",
+                "--input",
+                "Hello World","When the night has come and the land is dark"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${fileDirname}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "ninja build"
+        },
+        {
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
