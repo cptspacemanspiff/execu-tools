@@ -604,9 +604,29 @@ class MultiEntryPointExporter:
 
         if op_trace:
             for method in self.executorch_program.methods:
-                output_file = dir / f"{name}-{method}-graph_trace.txt"
+                ## Save the executorch graph trace:
+                output_file = dir / f"{name}-{method}-graph_trace_executorch.txt"
                 with open(output_file, "w") as f:
                     f.write(str(self.executorch_program.exported_program(method).graph))
+                output_file = dir / f"{name}-{method}-graph_trace_executorch_with_stack.txt"
+                with open(output_file, "w") as f:
+                    f.write(str(self.executorch_program.exported_program(method)))
+
+                ## Save the edge graph trace:
+                output_file = dir / f"{name}-{method}-graph_trace_edge.txt"
+                with open(output_file, "w") as f:
+                    f.write(str(self.edge_program.exported_program(method).graph))
+                output_file = dir / f"{name}-{method}-graph_trace_edge_with_stack.txt"
+                with open(output_file, "w") as f:
+                    f.write(str(self.edge_program.exported_program(method)))
+
+                ## Save the exported graph trace:
+                output_file = dir / f"{name}-{method}-graph_trace_exported.txt"
+                with open(output_file, "w") as f:
+                    f.write(str(self.method_graphs[method].graph))
+                output_file = dir / f"{name}-{method}-graph_trace_exported_with_stack.txt"
+                with open(output_file, "w") as f:
+                    f.write(str(self.method_graphs[method]))
 
         if memory_trace:
             for method in self.executorch_program.methods:
