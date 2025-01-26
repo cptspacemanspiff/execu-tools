@@ -345,7 +345,7 @@ def test_save(exporter: MultiEntryPointExporter, model: SimpleModel, tmp_path: P
     output_dir = tmp_path / "test_artifacts"
     output_dir.mkdir(parents=True)
 
-    exporter.save(output_dir, "test_model")
+    exporter.save(output_dir, "test_model", mk_subdir=False)
     assert (output_dir / "test_model.pte").exists()
     assert (output_dir / "test_model.etrecord").exists()
 
@@ -475,7 +475,7 @@ def test_dynamic_buffer_set(exporter: MultiEntryPointExporter, model: SimpleMode
     # True validation exports and runs the model
     exporter.to_edge()
     exporter.to_executorch()
-    exporter.save(tmp_path, "test_model")
+    exporter.save(tmp_path, "test_model", mk_subdir=False)
 
     et_runtime: Runtime = Runtime.get()
     program: Program = et_runtime.load_program(
@@ -541,7 +541,7 @@ def test_dynamic_buffer_load(exporter: MultiEntryPointExporter, model: SimpleMod
     # TODO: add this test
     exporter.to_edge()
     exporter.to_executorch()
-    exporter.save(tmp_path, "test_model")
+    exporter.save(tmp_path, "test_model", mk_subdir=False)
 
     et_runtime: Runtime = Runtime.get()
     program: Program = et_runtime.load_program(
