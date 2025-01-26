@@ -90,7 +90,7 @@ EncoderDecoderRunner::run(const std::vector<std::string> &input_strings) {
 
   int i = 0;
   // while (finished[0] != true) {
-  while (i < 10) {
+  while (i < 5) {
     // call the decoder:
     auto decoder_output = ET_UNWRAP(
         this->module_.execute("decode",

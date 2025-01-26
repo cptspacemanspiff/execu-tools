@@ -60,7 +60,7 @@ class EncoderDecoderWrapper(torch.nn.Module):
         # register a buffer to manage the unfinished sequences:
         # number of sequences is at mac the cache batch dimension:
         self.register_buffer(
-            "unfinished_sequences", torch.ones(max_batch_size, dtype=torch.int)
+            "unfinished_sequences", torch.ones(max_batch_size, dtype=torch.bool)
         )
         self.shared_fqn.append("unfinished_sequences")
 
@@ -127,9 +127,9 @@ class EncoderDecoderWrapper(torch.nn.Module):
         # handle stopping criteria
         if self.has_eos_stopping_criteria:
             next_tokens = (
-                next_tokens * self.unfinished_sequences[:batch_size]
+                next_tokens * self.unfinished_sequences[:batch_size].to(torch.int)
                 + self.generation_config._pad_token_tensor.to(torch.int)
-                * (torch.tensor(1, dtype=torch.int) - self.unfinished_sequences[:batch_size])
+                * (torch.tensor(1, dtype=torch.int) - self.unfinished_sequences[:batch_size].to(torch.int))
             )[:batch_size]
 
         self.unfinished_sequences[:batch_size] = self.unfinished_sequences[
