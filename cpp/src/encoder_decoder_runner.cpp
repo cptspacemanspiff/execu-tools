@@ -4,6 +4,7 @@
 #include <executorch/extension/tensor/tensor_ptr.h>
 #include <executorch/extension/tensor/tensor_ptr_maker.h>
 #include <executorch/runtime/core/error.h>
+#include <executorch/runtime/core/event_tracer.h>
 #include <executorch/runtime/core/exec_aten/exec_aten.h>
 #include <executorch/runtime/core/result.h>
 #include <executorch/runtime/core/tensor_shape_dynamism.h>
@@ -24,6 +25,9 @@ EncoderDecoderRunner::EncoderDecoderRunner(
     executorch::extension::Module::LoadMode load_mode,
     std::unique_ptr<executorch::runtime::EventTracer> event_tracer)
     : MultiEntryPointRunner(model_path, load_mode, std::move(event_tracer)) {
+
+  this->module_.event_tracer()->set_event_tracer_debug_level(executorch::runtime::EventTracerDebugLogLevel::kProgramOutputs);
+  this->module_.event_tracer()->set_event_tracer_profiling_level(executorch::runtime::EventTracerProfilingLevel::kProfileAllEvents);
 
   initialize_tokenizer();
 }
@@ -68,7 +72,7 @@ EncoderDecoderRunner::run(const std::vector<std::string> &input_strings) {
   }
 
   // TODO get the token from the model.
-  auto prefill_prompt = executorch::extension::empty({1, 1}, kTokenType,executorch::runtime::TensorShapeDynamism::DYNAMIC_UNBOUND);
+  auto prefill_prompt = executorch::extension::empty({1}, kTokenType,executorch::runtime::TensorShapeDynamism::DYNAMIC_UNBOUND);
   auto uint32_ptr = prefill_prompt->mutable_data_ptr<TokenType>();
   uint32_ptr[0] = 59513;
 
@@ -78,12 +82,12 @@ EncoderDecoderRunner::run(const std::vector<std::string> &input_strings) {
       this->module_.execute("et_module_init"),
       "Could not execute et_module_init method");
 
-  // ET_CHECK_OK_OR_RETURN_ERROR(this->module_.load_method("reset_encode_prefill"),
-  //                             "Could not load reset_encoder_prefill method");
-  // auto encoder_output = ET_UNWRAP(
-  //     this->module_.execute("reset_encode_prefill",
-  //                           {encoder_input, encoder_mask, prefill_prompt}),
-  //     "Could not execute reset_encode_prefill method");
+  ET_CHECK_OK_OR_RETURN_ERROR(this->module_.load_method("reset_encode_prefill"),
+                              "Could not load reset_encoder_prefill method");
+  auto encoder_output = ET_UNWRAP(
+      this->module_.execute("reset_encode_prefill",
+                            {encoder_input, encoder_mask, prefill_prompt}),
+      "Could not execute reset_encode_prefill method");
 
   // call the decoder callback:
   //   decoder_callback_(decoded_strings);

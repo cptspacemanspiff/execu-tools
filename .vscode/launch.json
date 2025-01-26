@@ -56,18 +56,18 @@
             "type": "debugpy",
             "request": "launch",
             "module": "executorch.devtools.inspector.inspector_cli",
-            // "args": [
-            //     "--etdump_path",
-            //     "${workspaceFolder}/cpp/test/et_dump.bin",
-            //     "--etrecord_path",
-            //     "${workspaceFolder}/python/tests/export_artifacts/opus_encoder_decoder_model.etrecord"
-            // ],
             "args": [
                 "--etdump_path",
-                "${workspaceFolder}/python/tests/export_artifacts/StatefulModel/stateful_model.etdump",
+                "${workspaceFolder}/cpp/test/et_dump.bin",
                 "--etrecord_path",
-                "${workspaceFolder}/python/tests/export_artifacts/StatefulModel/stateful_model.etrecord"
+                "${workspaceFolder}/python/tests/export_artifacts/opus_encoder_decoder_model.etrecord"
             ],
+            // "args": [
+            //     "--etdump_path",
+            //     "${workspaceFolder}/python/tests/export_artifacts/StatefulModel/stateful_model.etdump",
+            //     "--etrecord_path",
+            //     "${workspaceFolder}/python/tests/export_artifacts/StatefulModel/stateful_model.etrecord"
+            // ],
             "console": "integratedTerminal",
             "justMyCode": false
         },
@@ -78,9 +78,9 @@
             "program": "${workspaceRoot}/cpp/build/stage/bin/ExecuToolsEncoderDecoder",
             "args": [
                 "--model",
-                "${workspaceRoot}/python/tests/export_artifacts/opus_encoder_decoder_model.pte",
+                "${workspaceRoot}/python/tests/export_artifacts/EncoderDecoderWrapper/opus_encoder_decoder_model.pte",
                 "--input",
-                "Hello World","When the night has come and the land is dark"
+                "Hello World","When the night has come and the land is dark."
             ],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",
