@@ -7,7 +7,6 @@ from transformers.tokenization_utils_fast import TokenizerFast
 from transformers.convert_slow_tokenizer import convert_slow_tokenizer
 
 
-
 class EncoderDecoderWrapper(torch.nn.Module):
     def __init__(self, model, cache):
         super().__init__()
@@ -61,7 +60,7 @@ class EncoderDecoderWrapper(torch.nn.Module):
         # register a buffer to manage the unfinished sequences:
         # number of sequences is at mac the cache batch dimension:
         self.register_buffer(
-            "unfinished_sequences", torch.ones(max_batch_size, dtype=torch.long)
+            "unfinished_sequences", torch.ones(max_batch_size, dtype=torch.int)
         )
         self.shared_fqn.append("unfinished_sequences")
 
@@ -69,7 +68,7 @@ class EncoderDecoderWrapper(torch.nn.Module):
         self.shared_fqn.append("cache_position")
 
         self.register_buffer(
-            "next_tokens", torch.zeros((max_batch_size, 1), dtype=torch.long)
+            "next_tokens", torch.zeros((max_batch_size, 1), dtype=torch.int)
         )  # should be 2d, with batch size as first dim.
         self.shared_fqn.append("next_tokens")
         # get the logits processors:
@@ -99,10 +98,14 @@ class EncoderDecoderWrapper(torch.nn.Module):
             ),
         )
         self.shared_fqn.append("decoder_attention_mask")
+
     def format_prompt(self, prompt=None):
         # idea is to format the prompt in a standard way, TODO: reevaluate this.
         # Marian models just have start of string token, so we just return that.
-        return self.generation_config._decoder_start_token_tensor.unsqueeze(0)
+        tensor: torch.Tensor = (
+            self.generation_config._decoder_start_token_tensor.unsqueeze(0)
+        )
+        return tensor.to(torch.int)
 
     def get_shared_fqn(self):
         return self.shared_fqn
@@ -114,7 +117,7 @@ class EncoderDecoderWrapper(torch.nn.Module):
         self, batch_size, cache_position, next_token_scores, prev_decoder_outputs
     ):
         # greedy search
-        next_tokens = torch.argmax(next_token_scores, dim=-1)
+        next_tokens = torch.argmax(next_token_scores, dim=-1).to(torch.int)
 
         # Create new decoder outputs by concatenating previous outputs with next tokens
         decoder_outputs = torch.cat(
@@ -125,8 +128,8 @@ class EncoderDecoderWrapper(torch.nn.Module):
         if self.has_eos_stopping_criteria:
             next_tokens = (
                 next_tokens * self.unfinished_sequences[:batch_size]
-                + self.generation_config._pad_token_tensor
-                * (1 - self.unfinished_sequences[:batch_size])
+                + self.generation_config._pad_token_tensor.to(torch.int)
+                * (torch.tensor(1, dtype=torch.int) - self.unfinished_sequences[:batch_size])
             )[:batch_size]
 
         self.unfinished_sequences[:batch_size] = self.unfinished_sequences[
@@ -234,7 +237,7 @@ class EncoderDecoderWrapper(torch.nn.Module):
         # We are doing prefill:
         prefill_len = prefill_prompt.shape[0]
         prefill_positions = (
-            torch.ones_like(prefill_prompt, dtype=torch.int64).cumsum(0) - 1
+            torch.ones_like(prefill_prompt, dtype=torch.long).cumsum(0) - 1
         )
         decoder_inputs = prefill_prompt.unsqueeze(0).repeat(batch_size, 1)
 

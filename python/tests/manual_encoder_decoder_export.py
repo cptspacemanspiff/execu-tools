@@ -95,13 +95,13 @@ def export_model():
         export_example_reset_encode_prefill = {
             "encoder_inputs": MethodArg(
                 torch.ones(
-                    example_batch_size, example_encoder_seq_len, dtype=torch.long
+                    example_batch_size, example_encoder_seq_len, dtype=torch.int
                 ),
                 {0: batch_dim, 1: encoder_seq_len_dim},
             ),
             "encoder_attention_mask": MethodArg(
                 torch.ones(
-                    example_batch_size, example_encoder_seq_len, dtype=torch.long
+                    example_batch_size, example_encoder_seq_len, dtype=torch.int
                 ),
                 {0: batch_dim, 1: encoder_seq_len_dim},
             ),
@@ -111,19 +111,19 @@ def export_model():
         export_example_decode = {
             "encoder_inputs": MethodArg(
                 torch.ones(
-                    example_batch_size, example_encoder_seq_len, dtype=torch.long
+                    example_batch_size, example_encoder_seq_len, dtype=torch.int
                 ),
                 {0: batch_dim, 1: encoder_seq_len_dim},
             ),
             "encoder_attention_mask": MethodArg(
                 torch.ones(
-                    example_batch_size, example_encoder_seq_len, dtype=torch.long
+                    example_batch_size, example_encoder_seq_len, dtype=torch.bool
                 ),
                 {0: batch_dim, 1: encoder_seq_len_dim},
             ),
             "past_decoder_outputs": MethodArg(
                 torch.zeros(
-                    example_batch_size, example_decoder_seq_len, dtype=torch.long
+                    example_batch_size, example_decoder_seq_len, dtype=torch.int
                 ),
                 {0: batch_dim, 1: decoder_seq_len_dim},
             ),

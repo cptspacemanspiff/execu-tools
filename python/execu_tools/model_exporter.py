@@ -503,7 +503,7 @@ class MultiEntryPointExporter:
     #     pass
 
     def to_edge(
-        self, constant_methods: dict, partitioners: list = None
+        self, constant_methods: dict =None, partitioners: list = None
     ) -> EdgeProgramManager:
         # export the model graphs to the edge:
         if len(self.method_graphs) == 0:
