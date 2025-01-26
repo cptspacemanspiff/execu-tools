@@ -4,6 +4,7 @@
 #include <executorch/runtime/core/error.h>
 #include <executorch/runtime/platform/assert.h>
 #include <memory>
+#include <ostream>
 #include <string>
 #include <vector>
 
@@ -32,7 +33,7 @@ int main(int argc, char **argv) {
   // create a decoder callback lambda:
   auto decoder_callback =
       [](const std::vector<std::string> &new_token_strings) {
-        std::cout << new_token_strings[0]; // TODO: print all of them
+        std::cout << new_token_strings[0] <<std::flush; // TODO: print all of them
       };
 
   runner.set_decoder_callback(decoder_callback);
@@ -45,6 +46,8 @@ int main(int argc, char **argv) {
   // Run the runner
   auto maybe_result = runner.run(input_strings);
   // write out the et_dump
+  std::cout << std::endl; // new line after callbacks are done.
+
 
   auto buffer = runner.get_event_tracer_dump();
 

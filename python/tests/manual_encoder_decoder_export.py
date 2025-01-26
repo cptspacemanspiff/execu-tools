@@ -117,7 +117,7 @@ def export_model():
             ),
             "encoder_attention_mask": MethodArg(
                 torch.ones(
-                    example_batch_size, example_encoder_seq_len, dtype=torch.bool
+                    example_batch_size, example_encoder_seq_len, dtype=torch.int
                 ),
                 {0: batch_dim, 1: encoder_seq_len_dim},
             ),

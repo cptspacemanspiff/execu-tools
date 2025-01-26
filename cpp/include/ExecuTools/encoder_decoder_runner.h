@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cstddef>
+#include <executorch/extension/tensor/tensor_ptr.h>
 #include <functional>
 #include <memory>
 #include <string>
@@ -38,14 +39,22 @@ public:
   executorch::runtime::Error run(const std::vector<std::string> &input_strings);
 
 protected:
+  // Everything tokenizer related:
   // init tokenizer:
   executorch::runtime::Error initialize_tokenizer();
+  // strings to tensors:
+  executorch::runtime::Result<std::pair<executorch::extension::TensorPtr,
+                                        executorch::extension::TensorPtr>>
+  strings_to_tensors(const std::vector<std::string> &input_strings);
+  // tensors to strings:
+  std::vector<std::string>
+  tensors_to_strings(const executorch::runtime::etensor::Tensor &tensor_ptr);
 
   // use the HFTokenizer class (want access to the special tokens flag)
   std::unique_ptr<tokenizers::HFTokenizer> tokenizer_;
-
   // hf tokenizer json:
   std::vector<uint8_t> hf_tokenizer_json_;
+
   // decoder callback:
   std::function<void(const std::vector<std::string> &)> decoder_callback_;
 };

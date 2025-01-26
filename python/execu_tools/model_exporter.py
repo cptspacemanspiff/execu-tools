@@ -587,7 +587,7 @@ class MultiEntryPointExporter:
             dir.mkdir(parents=True)
         if mk_subdir:
             subdir = dir / model_name
-            subdir.mkdir(parents=True)
+            subdir.mkdir(parents=True, exist_ok=True)
             dir = subdir
         path = dir / (name + ".pte")
         with open(path, "wb") as f:
