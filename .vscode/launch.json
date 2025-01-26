@@ -56,11 +56,17 @@
             "type": "debugpy",
             "request": "launch",
             "module": "executorch.devtools.inspector.inspector_cli",
+            // "args": [
+            //     "--etdump_path",
+            //     "${workspaceFolder}/cpp/test/et_dump.bin",
+            //     "--etrecord_path",
+            //     "${workspaceFolder}/python/tests/export_artifacts/opus_encoder_decoder_model.etrecord"
+            // ],
             "args": [
                 "--etdump_path",
-                "${workspaceFolder}/cpp/test/et_dump.bin",
+                "${workspaceFolder}/python/tests/export_artifacts/StatefulModel/stateful_model.etdump",
                 "--etrecord_path",
-                "${workspaceFolder}/python/tests/export_artifacts/opus_encoder_decoder_model.etrecord"
+                "${workspaceFolder}/python/tests/export_artifacts/StatefulModel/stateful_model.etrecord"
             ],
             "console": "integratedTerminal",
             "justMyCode": false

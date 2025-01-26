@@ -40,7 +40,8 @@ target_link_libraries(
           extension_module_static
           extension_tensor
           ExecuTools::ExecuTools
-          ExecuTools::ExecuToolsUtils)
+          ExecuTools::ExecuToolsUtils
+          etdump)
 
 cmt_target_headers(
   ${CMT_LAST_TARGET} PRIVATE BASE_DIRS ${CMAKE_CURRENT_BINARY_DIR} FILES

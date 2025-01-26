@@ -72,12 +72,18 @@ EncoderDecoderRunner::run(const std::vector<std::string> &input_strings) {
   auto uint32_ptr = prefill_prompt->mutable_data_ptr<TokenType>();
   uint32_ptr[0] = 59513;
 
-  ET_CHECK_OK_OR_RETURN_ERROR(this->module_.load_method("reset_encode_prefill"),
-                              "Could not load reset_encoder_prefill method");
-  auto encoder_output = ET_UNWRAP(
-      this->module_.execute("reset_encode_prefill",
-                            {encoder_input, encoder_mask, prefill_prompt}),
-      "Could not execute reset_encode_prefill method");
+  ET_CHECK_OK_OR_RETURN_ERROR(this->module_.load_method("et_module_init"),
+                              "Could not load et_module_init method");
+  auto et_init_method = ET_UNWRAP(
+      this->module_.execute("et_module_init"),
+      "Could not execute et_module_init method");
+
+  // ET_CHECK_OK_OR_RETURN_ERROR(this->module_.load_method("reset_encode_prefill"),
+  //                             "Could not load reset_encoder_prefill method");
+  // auto encoder_output = ET_UNWRAP(
+  //     this->module_.execute("reset_encode_prefill",
+  //                           {encoder_input, encoder_mask, prefill_prompt}),
+  //     "Could not execute reset_encode_prefill method");
 
   // call the decoder callback:
   //   decoder_callback_(decoded_strings);

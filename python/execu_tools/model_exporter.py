@@ -575,6 +575,7 @@ class MultiEntryPointExporter:
         et_record: bool = True,
         memory_trace: bool = True,
         op_trace=True,
+        mk_subdir: bool = True,
     ):
         model_name = self.model.__class__.__name__
         if self.executorch_program is None:
@@ -584,13 +585,16 @@ class MultiEntryPointExporter:
         # create the directory if it does not exist:
         if not dir.exists():
             dir.mkdir(parents=True)
+        if mk_subdir:
+            subdir = dir / model_name
+            subdir.mkdir(parents=True)
+            dir = subdir
         path = dir / (name + ".pte")
         with open(path, "wb") as f:
             f.write(self.executorch_program.buffer)
 
         if et_record:
             save_path = dir / (name + ".etrecord")
-            # TODO fix the requirement that the edge program is not None.
             generate_etrecord(
                 save_path,
                 None,
@@ -600,13 +604,13 @@ class MultiEntryPointExporter:
 
         if op_trace:
             for method in self.executorch_program.methods:
-                output_file = dir / f"{model_name}-{method}-graph_trace.txt"
+                output_file = dir / f"{name}-{method}-graph_trace.txt"
                 with open(output_file, "w") as f:
                     f.write(str(self.executorch_program.exported_program(method).graph))
 
         if memory_trace:
             for method in self.executorch_program.methods:
-                output_file = dir / f"{model_name}-{method}-memory_profile.json"
+                output_file = dir / f"{name}-{method}-memory_profile.json"
                 generate_memory_trace(
                     executorch_program_manager=self.executorch_program,
                     chrome_trace_filename=output_file,
