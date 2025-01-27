@@ -70,6 +70,8 @@ def generate_with_wrapper(model_wrapper : EncoderDecoderWrapper, input_ids, set_
             )
             all_tokens = torch.cat((all_tokens, new_tokens), dim=1)
 
+            assert torch.all(all_tokens == decoder_outputs), "Tokens gathered from new_tokens and decoder_outputs do not match."
+
         return all_tokens
 
 

@@ -37,7 +37,11 @@ int main(int argc, char **argv) {
   // create a decoder callback lambda:
   auto decoder_callback =
       [](const std::vector<std::string> &new_token_strings) {
-        std::cout << new_token_strings[0] <<' '<<std::flush; // TODO: print all of them
+        std::cout << "[";
+        for (const auto &token_string : new_token_strings) {
+          std::cout << "'"<<token_string << "',";
+        }
+        std::cout << "]" <<   std::flush;
       };
 
   runner.set_decoder_callback(decoder_callback);

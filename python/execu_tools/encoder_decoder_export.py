@@ -117,11 +117,6 @@ class EncoderDecoderWrapper(torch.nn.Module):
         # greedy search
         next_tokens = torch.argmax(next_token_scores, dim=-1).to(torch.int)
 
-        # Create new decoder outputs by concatenating previous outputs with next tokens
-        decoder_outputs = torch.cat(
-            [prev_decoder_outputs, next_tokens.unsqueeze(1)], dim=1
-        )
-
         # handle stopping criteria
         if self.has_eos_stopping_criteria:
             next_tokens = (
@@ -130,6 +125,11 @@ class EncoderDecoderWrapper(torch.nn.Module):
                 * (torch.tensor(1, dtype=torch.int) & ~self.unfinished_sequences[:batch_size])
             )[:batch_size]
             pass
+
+        # Create new decoder outputs by concatenating previous outputs with next tokens
+        decoder_outputs = torch.cat(
+            [prev_decoder_outputs, next_tokens.unsqueeze(1)], dim=1
+        )
 
         self.unfinished_sequences[:batch_size] = self.unfinished_sequences[
             :batch_size

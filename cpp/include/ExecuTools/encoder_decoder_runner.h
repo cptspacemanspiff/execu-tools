@@ -35,7 +35,8 @@ public:
    * @param input_strings text strings to encode, and then decode, in a batch.
    * tokenization, masking is handled internally.
    */
-  executorch::runtime::Result<std::vector<std::string>> run(const std::vector<std::string> &input_strings);
+  executorch::runtime::Result<std::vector<std::string>>
+  run(const std::vector<std::string> &input_strings);
 
 protected:
   // Everything tokenizer related:
@@ -47,7 +48,8 @@ protected:
   strings_to_tensors(const std::vector<std::string> &input_strings);
   // tensors to strings:
   std::vector<std::string>
-  tensors_to_strings(const executorch::extension::TensorPtr &tensor_ptr);
+  tensors_to_strings(const executorch::extension::TensorPtr &tensor_ptr,
+                     bool skip_special_tokens = false);
 
   // use the HFTokenizer class (want access to the special tokens flag)
   std::unique_ptr<tokenizers::HFTokenizer> tokenizer_;

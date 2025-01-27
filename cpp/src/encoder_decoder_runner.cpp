@@ -48,7 +48,7 @@ EncoderDecoderRunner::run(const std::vector<std::string> &input_strings) {
          tokens[0].size());
 
   // run the init to zero out data: (probably not needed.)
-  auto et_init_method = ET_UNWRAP(this->execute("et_module_init",{}),
+  auto et_init_method = ET_UNWRAP(this->execute("et_module_init", {}),
                                   "Could not execute et_module_init method");
 
   // run the encoder + prefill:
@@ -63,10 +63,10 @@ EncoderDecoderRunner::run(const std::vector<std::string> &input_strings) {
   auto uint32_ptr = prefill_prompt->mutable_data_ptr<int32_t>();
   uint32_ptr[0] = 59513;
 
-  auto encoder_output = ET_UNWRAP(
-      this->execute("reset_encode_prefill",
-                            {encoder_input, encoder_mask, prefill_prompt}),
-      "Could not execute reset_encode_prefill method");
+  auto encoder_output =
+      ET_UNWRAP(this->execute("reset_encode_prefill",
+                              {encoder_input, encoder_mask, prefill_prompt}),
+                "Could not execute reset_encode_prefill method");
 
   auto finished = encoder_output[0].toTensor().const_data_ptr<bool>();
   auto new_tokens = encoder_output[1].toTensor();
@@ -74,22 +74,23 @@ EncoderDecoderRunner::run(const std::vector<std::string> &input_strings) {
       executorch::extension::clone_tensor_ptr(encoder_output[2].toTensor());
 
   // write the new tokens to the decoder callback:
-  this->decoder_callback_(tensors_to_strings(executorch::extension::make_tensor_ptr(new_tokens)));
-  
+  this->decoder_callback_(
+      tensors_to_strings(executorch::extension::make_tensor_ptr(new_tokens)));
+
   while (finished[0] != true) {
     // call the decoder:
-    auto decoder_output = ET_UNWRAP(
-        this->execute("decode",
-                              {encoder_input, encoder_mask,
-                               past_decoder_outputs}),
-        "Could not execute decode method");
+    auto decoder_output =
+        ET_UNWRAP(this->execute("decode", {encoder_input, encoder_mask,
+                                           past_decoder_outputs}),
+                  "Could not execute decode method");
     finished = decoder_output[0].toTensor().const_data_ptr<bool>();
     new_tokens = decoder_output[1].toTensor();
     past_decoder_outputs =
         executorch::extension::clone_tensor_ptr(decoder_output[2].toTensor());
 
     // write the new tokens to the decoder callback:
-    this->decoder_callback_(tensors_to_strings(executorch::extension::make_tensor_ptr(new_tokens)));
+    this->decoder_callback_(
+        tensors_to_strings(executorch::extension::make_tensor_ptr(new_tokens)));
   }
 
   return tensors_to_strings(past_decoder_outputs);
@@ -162,7 +163,8 @@ EncoderDecoderRunner::strings_to_tensors(
 }
 
 std::vector<std::string> EncoderDecoderRunner::tensors_to_strings(
-    const executorch::extension::TensorPtr &tensor_ptr) {
+    const executorch::extension::TensorPtr &tensor_ptr,
+    bool skip_special_tokens) {
   auto data = tensor_ptr->const_data_ptr<int32_t>();
   std::vector<std::string> decoded_strings;
 
@@ -173,8 +175,8 @@ std::vector<std::string> EncoderDecoderRunner::tensors_to_strings(
     for (int j = 0; j < tensor_ptr->size(1); j++) {
       decoded_tokens_for_sequence.push_back(data[i * tensor_ptr->size(1) + j]);
     }
-    decoded_strings.push_back(
-        this->tokenizer_->Decode(decoded_tokens_for_sequence));
+    decoded_strings.push_back(this->tokenizer_->Decode(
+        decoded_tokens_for_sequence, skip_special_tokens));
   }
 
   return decoded_strings;
