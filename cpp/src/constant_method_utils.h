@@ -15,6 +15,7 @@
 
 #include <executorch/extension/tensor/tensor_ptr.h>
 #include <executorch/runtime/executor/program.h>
+
 namespace executools {
 
 namespace constant_method_utils {
@@ -28,7 +29,8 @@ namespace constant_method_utils {
  * @return TensorPtr to the output of the method (owns the data).
  */
 executorch::extension::TensorPtr execute_constant_method_with_temp_memory(
-    torch::executor::Program *program, std::string method_name,
+    executorch::runtime::Program *program,
+    executorch::runtime::EventTracer *event_tracer, std::string method_name,
     const executorch::runtime::MethodMeta &method_meta);
 
 /**

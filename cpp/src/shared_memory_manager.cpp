@@ -28,7 +28,9 @@ using executorch::runtime::HierarchicalAllocator;
 using executorch::runtime::MethodMeta;
 using executorch::runtime::Program;
 
-SharedMemoryManager::SharedMemoryManager(std::shared_ptr<Program> program)
+SharedMemoryManager::SharedMemoryManager(
+    std::shared_ptr<Program> program,
+    executorch::runtime::EventTracer *event_tracer)
     : program_(program),
       init_method_(reserved_fn_names::SHARED_BUFFER_INIT_FN) {
   // get all methods in the program:
@@ -45,13 +47,14 @@ SharedMemoryManager::SharedMemoryManager(std::shared_ptr<Program> program)
         std::make_pair(method_name.get(), method_meta.get()));
   }
   // get the shared memory buffer names/ids (this runs constant methods):
-  auto shared_memory_plan_map = get_shared_memory_plan_map(method_meta_map);
+  auto shared_memory_plan_map =
+      get_shared_memory_plan_map(method_meta_map, event_tracer);
   // from the memory plan map, get a vector of the shared memory ids:
   std::vector<int64_t> shared_memory_ids;
   for (const auto &plan : shared_memory_plan_map) {
     // the memory plan is 1 indexed, so we need to subtract 1 to get the actual
     // mem_id which is the python size -1 b/c of wierd reserve rules.
-    int64_t actual_mem_id = plan.second.mem_id-1;
+    int64_t actual_mem_id = plan.second.mem_id - 1;
     // if the mem_id is not in the shared_memory_ids_ vector, add it:
     if (std::find(shared_memory_ids.begin(), shared_memory_ids.end(),
                   actual_mem_id) == shared_memory_ids.end()) {
@@ -204,12 +207,14 @@ SharedMemoryManager::get_buffer(const std::string &method_name, size_t mem_id) {
 std::map<std::string, SharedMemoryManager::MemoryPlanInfo>
 SharedMemoryManager::get_shared_memory_plan_map(
     const std::unordered_map<std::string, executorch::runtime::MethodMeta>
-        &method_meta_map) const {
+        &method_meta_map,
+    executorch::runtime::EventTracer *event_tracer) const {
 
   // get the buffer names:
   auto buffer_names_tensor =
       constant_method_utils::execute_constant_method_with_temp_memory(
-          program_.get(), reserved_fn_names::GET_SHARED_BUFFER_NAMES_FN,
+          program_.get(), event_tracer,
+          reserved_fn_names::GET_SHARED_BUFFER_NAMES_FN,
           method_meta_map.at(reserved_fn_names::GET_SHARED_BUFFER_NAMES_FN));
   auto buffer_names =
       constant_method_utils::tensor_cstr_to_string(buffer_names_tensor);
@@ -217,13 +222,14 @@ SharedMemoryManager::get_shared_memory_plan_map(
   // get the memory plan:
   auto memory_plan_tensor =
       constant_method_utils::execute_constant_method_with_temp_memory(
-          program_.get(), reserved_fn_names::GET_SHARED_BUFFER_MEMORY_PLAN_FN,
+          program_.get(), event_tracer,
+          reserved_fn_names::GET_SHARED_BUFFER_MEMORY_PLAN_FN,
           method_meta_map.at(
               reserved_fn_names::GET_SHARED_BUFFER_MEMORY_PLAN_FN));
 
   ET_CHECK_MSG(
-      memory_plan_tensor->dtype() == torch::executor::ScalarType::Long,
-      "Memory plan tensor dtype is not torch::executor::ScalarType::Long");
+      memory_plan_tensor->dtype() == executorch::aten::ScalarType::Long,
+      "Memory plan tensor dtype is not executorch::aten::ScalarType::Long");
   using memory_plan_dtype = int64_t;
 
   // ordered map is easier to debug.

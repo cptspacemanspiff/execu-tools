@@ -21,20 +21,10 @@ MultiEntryPointRunner::MultiEntryPointRunner(
   ET_CHECK_MSG(initialize_program() == executorch::runtime::Error::Ok,
                "Failed to initialize program in MultiEntryPointRunner");
 
-  // program is initialized, now we can use it to get standard info from the
-  // model.
-  // TODO: Add this to the constructor.
-  // this->init_method_name_ = module_.load_method('executools_init_method'); //
-  // constant method that gets the string name of the init method, hardcode for
-  // now.
-  this->init_method_name_ = "et_module_init";
-  // Same for shared memory ids, hardcode for now.
-  this->shared_memory_ids_ = {1};
-
   // initailize the shared memory manager: (this allocates the memory for the
   // methods), but methods are still not loaded yet.
   this->shared_memory_manager_ = std::make_unique<SharedMemoryManager>(
-      module_.program());
+      module_.program(), module_.event_tracer());
 }
 
 executorch::runtime::Error MultiEntryPointRunner::load_method(

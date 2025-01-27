@@ -24,11 +24,14 @@ int main(int argc, char **argv) {
       ->required()
       ->expected(1, -1); // Accept 1 or more inputs
 
+  std::vector<uint8_t> debug_buffer(10e6);// 10mb should be enough?
+  auto et_dump_gen_original = std::make_unique<executorch::etdump::ETDumpGen>();
+  et_dump_gen_original->set_debug_buffer({debug_buffer.data(), debug_buffer.size()});
   // Parse the command line
   CLI11_PARSE(app, argc, argv);
   EncoderDecoderRunner runner(
       model_path, executorch::extension::Module::LoadMode::MmapUseMlock,
-      std::make_unique<executorch::etdump::ETDumpGen>());
+      std::move(et_dump_gen_original));
 
   // create a decoder callback lambda:
   auto decoder_callback =

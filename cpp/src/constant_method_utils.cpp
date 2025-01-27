@@ -6,7 +6,8 @@ namespace executools {
 namespace constant_method_utils {
 
 executorch::extension::TensorPtr execute_constant_method_with_temp_memory(
-    torch::executor::Program *program, std::string method_name,
+    executorch::runtime::Program *program,
+    executorch::runtime::EventTracer *event_tracer, std::string method_name,
     const executorch::runtime::MethodMeta &method_meta) {
   // execute the method with temp memory TODO: make this all stack allocated...
   std::vector<uint8_t> temp_memory;
@@ -25,7 +26,7 @@ executorch::extension::TensorPtr execute_constant_method_with_temp_memory(
                                                     nullptr};
 
   // load the method:
-  auto method = program->load_method(method_name.c_str(), &memory_manager);
+  auto method = program->load_method(method_name.c_str(), &memory_manager, event_tracer);
   ET_CHECK_MSG(method.ok(), "Constant method %s failed to load",
                method_name.c_str());
 
@@ -57,8 +58,9 @@ std::vector<std::string>
 tensor_cstr_to_string(const executorch::extension::TensorPtr &tensor) {
 
   // make sure that the tensor is 2d:
-  ET_CHECK_MSG(tensor->dim() == 2, "Tensor is not 2d (num_strings x max_str_len)");
-  
+  ET_CHECK_MSG(tensor->dim() == 2,
+               "Tensor is not 2d (num_strings x max_str_len)");
+
   // get the tensor data:
   auto tensor_data = tensor->const_data_ptr<char>();
   // get the number of strings:
@@ -77,7 +79,6 @@ tensor_cstr_to_string(const executorch::extension::TensorPtr &tensor) {
   }
 
   return strings;
-
 }
 
 } // namespace constant_method_utils

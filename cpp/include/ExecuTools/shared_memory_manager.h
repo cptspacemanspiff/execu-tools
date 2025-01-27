@@ -18,7 +18,8 @@ namespace executools {
 
 ExecuTools_EXPORT class SharedMemoryManager {
 public:
-  SharedMemoryManager(std::shared_ptr<executorch::runtime::Program> program);
+  SharedMemoryManager(std::shared_ptr<executorch::runtime::Program> program,
+                      executorch::runtime::EventTracer *event_tracer = nullptr);
 
   std::shared_ptr<executorch::runtime::HierarchicalAllocator>
   get_allocator(const std::string &method_name);
@@ -49,7 +50,8 @@ private:
   std::map<std::string, SharedMemoryManager::MemoryPlanInfo>
   get_shared_memory_plan_map(
       const std::unordered_map<std::string, executorch::runtime::MethodMeta>
-          &method_meta_map) const;
+          &method_meta_map,
+      executorch::runtime::EventTracer *event_tracer) const;
 
   class MethodDataStore {
   public:
