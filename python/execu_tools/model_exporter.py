@@ -189,12 +189,15 @@ def create_shared_buffer_memory_info_constant_methods(shared_buffer_info: dict):
     def string_to_tensor(string: str):
         return torch.tensor([string.encode("utf-8")], dtype=torch.uint8)
 
+    if len(shared_buffer_info) == 0:
+        return None, None
 
     list_of_str_tensors = []
     list_of_mem_info_tensors = []
     for key, val in shared_buffer_info.items():
         # convert the key to a c string:
         list_of_str_tensors.append(string_to_tensor(key))
+        # TODO: pass the torch dtype enum to the runtime:
         # memory info:
         mem_info_tensor = torch.tensor([val["mem_id"], val["mem_obj_id"], val["mem_offset"], val["mem_allocated_size"], val["mem_actual_size"], val["num_elements"]], dtype=torch.long)
         list_of_mem_info_tensors.append(mem_info_tensor)
@@ -608,10 +611,14 @@ class MultiEntryPointExporter:
 
         # hack this in as an additional constant_method to pass memory planning data to the runtime for
         name_tensor, memory_plan_tensor = create_shared_buffer_memory_info_constant_methods(shared_layout_dict)
-        if not self.edge_program._config_methods:
-            self.edge_program._config_methods = {}
-        self.edge_program._config_methods[ET_GET_SHARED_BUFFER_NAMES_FN] = name_tensor
-        self.edge_program._config_methods[ET_GET_SHARED_BUFFER_MEMORY_PLAN_FN] = memory_plan_tensor
+        if name_tensor is not None:
+            # we need to add out shared buffer methods to the edge program.
+            if not self.edge_program._config_methods:
+                # we need to hack in the config methods.
+                self.edge_program._config_methods = {}
+            # add the shared buffer methods to the edge program:
+            self.edge_program._config_methods[ET_GET_SHARED_BUFFER_NAMES_FN] = name_tensor
+            self.edge_program._config_methods[ET_GET_SHARED_BUFFER_MEMORY_PLAN_FN] = memory_plan_tensor
         
         # deepcopy the edge program for later use
         self.edge_program_copy = copy.deepcopy(self.edge_program)

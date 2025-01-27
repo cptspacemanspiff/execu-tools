@@ -2,12 +2,12 @@
 #include <ExecuTools/multi_entry_point_runner.h>
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <executorch/devtools/etdump/etdump_flatcc.h>
 #include <executorch/runtime/core/error.h>
 #include <executorch/runtime/core/event_tracer.h>
 #include <executorch/runtime/platform/assert.h>
 #include <memory>
-#include <cstring>
 
 using namespace executools;
 
@@ -25,6 +25,28 @@ MultiEntryPointRunner::MultiEntryPointRunner(
   // methods), but methods are still not loaded yet.
   this->shared_memory_manager_ = std::make_unique<SharedMemoryManager>(
       module_.program(), module_.event_tracer());
+
+  // load the methods:
+  ET_CHECK_MSG(load_methods() == executorch::runtime::Error::Ok,
+               "Failed to load all methods in MultiEntryPointRunner");
+
+  // all methods are loaded.
+}
+
+executorch::runtime::EventTracer *MultiEntryPointRunner::event_tracer() {
+  return this->module_.event_tracer();
+}
+
+executorch::runtime::Result<std::vector<executorch::runtime::EValue>>
+MultiEntryPointRunner::execute(
+    const std::string &method_name,
+    const std::vector<executorch::runtime::EValue> &input_values) {
+  return this->module_.execute(method_name, input_values);
+}
+
+executorch::runtime::Result<std::unordered_set<std::string>>
+MultiEntryPointRunner::method_names() {
+  return this->module_.method_names();
 }
 
 executorch::runtime::Error MultiEntryPointRunner::load_method(
@@ -80,7 +102,7 @@ std::vector<uint8_t> MultiEntryPointRunner::get_event_tracer_dump() {
   // Create a new vector with the buffer data
   auto size = buffer.size;
   std::vector<uint8_t> result(size);
-  std::copy_n(static_cast<const uint8_t*>(buffer.buf), size, result.data());
+  std::copy_n(static_cast<const uint8_t *>(buffer.buf), size, result.data());
 
   return result;
 }

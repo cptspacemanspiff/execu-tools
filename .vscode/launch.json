@@ -84,7 +84,7 @@
                 "--model",
                 "${workspaceRoot}/python/tests/export_artifacts/EncoderDecoderWrapper/opus_encoder_decoder_model.pte",
                 "--input",
-                "Hello World","When the night has come and the land is dark."
+                "When the night has come and the land is dark.","Hello World",
             ],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",
@@ -106,7 +106,7 @@
             "preLaunchTask": "ninja build"
         },
         {
-            "name": "(gdb) Launch",
+            "name": "cpp module test",
             "type": "cppdbg",
             "request": "launch",
             // "program": "${workspaceRoot}/cpp/build/stage/bin/ExecuToolsUnitTests",

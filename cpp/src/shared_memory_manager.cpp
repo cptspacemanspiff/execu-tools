@@ -47,11 +47,11 @@ SharedMemoryManager::SharedMemoryManager(
         std::make_pair(method_name.get(), method_meta.get()));
   }
   // get the shared memory buffer names/ids (this runs constant methods):
-  auto shared_memory_plan_map =
+  this->shared_memory_plan_map_ =
       get_shared_memory_plan_map(method_meta_map, event_tracer);
   // from the memory plan map, get a vector of the shared memory ids:
   std::vector<int64_t> shared_memory_ids;
-  for (const auto &plan : shared_memory_plan_map) {
+  for (const auto &plan : this->shared_memory_plan_map_) {
     // the memory plan is 1 indexed, so we need to subtract 1 to get the actual
     // mem_id which is the python size -1 b/c of wierd reserve rules.
     int64_t actual_mem_id = plan.second.mem_id - 1;
@@ -80,6 +80,9 @@ SharedMemoryManager::SharedMemoryManager(
       allocate_memory_for_method(method_pair.first, method_pair.second);
     }
   }
+
+  // save the the shared buffer views to internal member (for debugging):
+  this->shared_buffer_views_ = get_shared_buffer_views();
 }
 
 std::shared_ptr<HierarchicalAllocator>
@@ -178,7 +181,11 @@ void SharedMemoryManager::allocate_memory_for_method(
 }
 
 std::pair<uint8_t *, size_t>
-SharedMemoryManager::get_buffer(const std::string &method_name, size_t mem_id) {
+SharedMemoryManager::get_buffer(const std::string &method_name, size_t mem_id,
+                                size_t mem_offset_byte, size_t mem_size_byte) {
+
+  uint8_t *buffer_ptr = nullptr;
+  size_t buffer_size = 0;
 
   // check if the given mem_id is in the shared_memory_ids_ vector:
   if (std::find(shared_memory_ids_.begin(), shared_memory_ids_.end(), mem_id) !=
@@ -189,18 +196,50 @@ SharedMemoryManager::get_buffer(const std::string &method_name, size_t mem_id) {
     if (it == shared_memory_buffers_.end()) {
       ET_CHECK_MSG(false, "Buffer not found shared memory id %zu", mem_id);
     }
-    return std::make_pair(it->second.first.get(), it->second.second);
+    buffer_ptr = it->second.first.get();
+    buffer_size = it->second.second;
+  } else {
+    // not a shared memory id:
+    // it is not a shared memory id, so we need to return the buffer from the
+    // method data store:
+    auto it = method_data_store_map_.find(method_name);
+    if (it == method_data_store_map_.end()) {
+      ET_CHECK_MSG(false, "Method data store not found for method %s",
+                   method_name.c_str());
+    }
+
+    // TODO: allow loading buffers from method data store.
+    ET_CHECK_MSG(false,
+                 "Could not find mem_id %zu, buffer in shared buffers, "
+                 "Loading buffers from method data store not "
+                 "supported",
+                 mem_id);
+  }
+  // check that the buffer is in
+
+  ET_CHECK_MSG(buffer_ptr != nullptr, "Buffer pointer is null");
+
+  if (mem_size_byte == 0 & mem_offset_byte == 0) {
+    // return the entire buffer:
+    return std::make_pair(buffer_ptr, buffer_size);
   }
 
-  // it is not a shared memory id, so we need to return the buffer from the
-  // method data store:
-  auto it = method_data_store_map_.find(method_name);
-  if (it == method_data_store_map_.end()) {
-    ET_CHECK_MSG(false, "Method data store not found for method %s",
-                 method_name.c_str());
-  }
-  return std::make_pair(it->second.arenas[mem_id].data(),
-                        it->second.arenas[mem_id].size());
+  // check that the size is not 0:
+  ET_CHECK_MSG(mem_size_byte != 0,
+               "Buffer size cannot be 0, if mem_offset_byte is not 0 (we "
+               "return the whole buffer)");
+
+  // check that the mem_offset_byte + mem_size_byte are within the bounds of
+  // the buffer:
+  ET_CHECK_MSG(!(mem_offset_byte + mem_size_byte > buffer_size),
+               "Buffer offset and size out of bounds for method %s, "
+               "mem_id %zu, mem_offset_byte %zu, mem_size_byte %zu, and a "
+               "buffer size of %zu",
+               method_name.c_str(), mem_id, mem_offset_byte, mem_size_byte,
+               buffer_size);
+
+  // return the buffer with the given offset and size:
+  return std::make_pair(buffer_ptr + mem_offset_byte, mem_size_byte);
 }
 
 // Private internal helper functions:
@@ -209,6 +248,16 @@ SharedMemoryManager::get_shared_memory_plan_map(
     const std::unordered_map<std::string, executorch::runtime::MethodMeta>
         &method_meta_map,
     executorch::runtime::EventTracer *event_tracer) const {
+
+  // check that the method_meta_map has the required methods:
+  auto it = method_meta_map.find(reserved_fn_names::GET_SHARED_BUFFER_NAMES_FN);
+  ET_CHECK_MSG(it != method_meta_map.end(),
+               "Method %s not found in method_meta_map",
+               reserved_fn_names::GET_SHARED_BUFFER_NAMES_FN);
+  it = method_meta_map.find(reserved_fn_names::GET_SHARED_BUFFER_MEMORY_PLAN_FN);
+  ET_CHECK_MSG(it != method_meta_map.end(),
+               "Method %s not found in method_meta_map",
+               reserved_fn_names::GET_SHARED_BUFFER_MEMORY_PLAN_FN);
 
   // get the buffer names:
   auto buffer_names_tensor =
@@ -248,4 +297,25 @@ SharedMemoryManager::get_shared_memory_plan_map(
   }
 
   return shared_memory_plan_map;
+}
+
+std::map<std::string, SharedMemoryManager::SharedBufferView>
+SharedMemoryManager::get_shared_buffer_views() {
+  const auto &shared_memory_plan_map = this->shared_memory_plan_map_;
+
+  std::map<std::string, SharedBufferView> shared_buffer_views;
+  for (const auto &plan : shared_memory_plan_map) {
+    auto buffer_name = plan.first;
+    auto buffer_plan = plan.second;
+
+    auto actual_mem_id = buffer_plan.mem_id - 1;
+
+    auto [buffer, buffer_size] = this->get_buffer(
+        reserved_fn_names::SHARED_BUFFER_INIT_FN, actual_mem_id,
+        (size_t)buffer_plan.mem_offset, (size_t)buffer_plan.mem_actual_size);
+
+    auto view = std::span<uint8_t>(buffer, buffer_size);
+    shared_buffer_views.emplace(std::make_pair(buffer_name, std::move(view)));
+  }
+  return shared_buffer_views;
 }

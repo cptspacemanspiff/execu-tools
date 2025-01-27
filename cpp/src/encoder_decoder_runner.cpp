@@ -26,9 +26,9 @@ EncoderDecoderRunner::EncoderDecoderRunner(
     std::unique_ptr<executorch::runtime::EventTracer> event_tracer)
     : MultiEntryPointRunner(model_path, load_mode, std::move(event_tracer)) {
 
-  this->module_.event_tracer()->set_event_tracer_debug_level(
+  this->event_tracer()->set_event_tracer_debug_level(
       executorch::runtime::EventTracerDebugLogLevel::kProgramOutputs);
-  this->module_.event_tracer()->set_event_tracer_profiling_level(
+  this->event_tracer()->set_event_tracer_profiling_level(
       executorch::runtime::EventTracerProfilingLevel::kProfileAllEvents);
 
   initialize_tokenizer();
@@ -47,16 +47,8 @@ EncoderDecoderRunner::run(const std::vector<std::string> &input_strings) {
   ET_LOG(Info, "Encoded %zu strings, with a length of %zu.", tokens.size(),
          tokens[0].size());
 
-  // load the methods TODO: (move to init section)
-  ET_CHECK_OK_OR_RETURN_ERROR(this->module_.load_method("et_module_init"),
-                              "Could not load et_module_init method");
-  ET_CHECK_OK_OR_RETURN_ERROR(this->module_.load_method("reset_encode_prefill"),
-                              "Could not load reset_encoder_prefill method");
-  ET_CHECK_OK_OR_RETURN_ERROR(this->module_.load_method("decode"),
-                              "Could not load decode method");
-
   // run the init to zero out data: (probably not needed.)
-  auto et_init_method = ET_UNWRAP(this->module_.execute("et_module_init"),
+  auto et_init_method = ET_UNWRAP(this->execute("et_module_init",{}),
                                   "Could not execute et_module_init method");
 
   // run the encoder + prefill:
@@ -72,7 +64,7 @@ EncoderDecoderRunner::run(const std::vector<std::string> &input_strings) {
   uint32_ptr[0] = 59513;
 
   auto encoder_output = ET_UNWRAP(
-      this->module_.execute("reset_encode_prefill",
+      this->execute("reset_encode_prefill",
                             {encoder_input, encoder_mask, prefill_prompt}),
       "Could not execute reset_encode_prefill method");
 
@@ -83,13 +75,11 @@ EncoderDecoderRunner::run(const std::vector<std::string> &input_strings) {
 
   // write the new tokens to the decoder callback:
   this->decoder_callback_(tensors_to_strings(new_tokens));
-
-  int i = 0;
-  // while (finished[0] != true) {
-  while (i < 5) {
+  
+  while (finished[0] != true) {
     // call the decoder:
     auto decoder_output = ET_UNWRAP(
-        this->module_.execute("decode",
+        this->execute("decode",
                               {encoder_input, encoder_mask,
                                past_decoder_outputs}),
         "Could not execute decode method");
@@ -100,7 +90,6 @@ EncoderDecoderRunner::run(const std::vector<std::string> &input_strings) {
 
     // write the new tokens to the decoder callback:
     this->decoder_callback_(tensors_to_strings(new_tokens));
-    i++;
   }
 
   return executorch::runtime::Error::Ok;
@@ -114,11 +103,6 @@ executorch::runtime::Error EncoderDecoderRunner::initialize_tokenizer() {
   ET_CHECK_OR_RETURN_ERROR(
       method_names.find("tokenizer_blob") != method_names.end(), NotImplemented,
       "tokenizer_blob method not found in model, was it exported?");
-
-  // load the method:
-  ET_CHECK_OK_OR_RETURN_ERROR(module_.load_method("tokenizer_blob"),
-                              "Found tokenizer_blob method, but could not load "
-                              "it in tokenizer initialization");
 
   // get the tokenizer blob:
   std::vector<executorch::runtime::EValue> tokenizer_blob_tensor =

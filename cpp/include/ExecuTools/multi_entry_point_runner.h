@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <executorch/runtime/core/exec_aten/exec_aten.h>
 #include <memory>
 #include <string>
 #include <vector>
@@ -25,6 +26,31 @@ public:
   std::vector<uint8_t> get_event_tracer_dump();
 
 protected:
+  // methods exposed from module:
+
+  executorch::runtime::EventTracer *event_tracer();
+
+  executorch::runtime::Result<std::vector<executorch::runtime::EValue>>
+  execute(const std::string &method_name,
+          const std::vector<executorch::runtime::EValue> &input_values);
+  executorch::runtime::Result<std::unordered_set<std::string>> method_names();
+
+  /**
+   * @brief Validates that the method can be called based on the metadata of the
+   * method (ie it creates junk values an sends them to the module, basically a
+   * check that nothing segfaults, crashes, or errors.)
+   * Generally just creates zeros of the all valid shapes and types and sends
+   * them in.
+   *
+   * @param method_name
+   * @return executorch::runtime::Error
+   */
+  executorch::runtime::Error validate_method(const std::string &method_name);
+
+
+  executorch::extension::Module module_;
+
+private:
   /**
    * @brief Loads a single method into the program.
    *
@@ -45,24 +71,10 @@ protected:
    */
   executorch::runtime::Error load_methods();
 
-  /**
-   * @brief Validates that the method can be called based on the metadata of the
-   * method (ie it creates junk values an sends them to the module, basically a
-   * check that nothing segfaults, crashes, or errors.)
-   * Generally just creates zeros of the all valid shapes and types and sends
-   * them in.
-   *
-   * @param method_name
-   * @return executorch::runtime::Error
-   */
-  executorch::runtime::Error validate_method(const std::string &method_name);
-
-  executorch::extension::Module module_;
-  std::unique_ptr<executools::SharedMemoryManager> shared_memory_manager_;
-  std::vector<uint8_t> hf_tokenizer_json;
-
-private:
   executorch::runtime::Error initialize_program();
+
+
+  std::unique_ptr<executools::SharedMemoryManager> shared_memory_manager_;
 
   std::string init_method_name_;
   std::vector<size_t> shared_memory_ids_;

@@ -1,5 +1,4 @@
 
-#include "executorch/extension/data_loader/file_data_loader.h"
 #include <ExecuTools/utils/string_helpers.h>
 #include <cassert>
 #include <cstddef>
@@ -18,11 +17,9 @@
 #include <fstream>
 #include <memory>
 #include <span>
-using executorch::extension::FileDataLoader;
 using executorch::extension::Module;
 using executorch::runtime::Error;
 using executorch::runtime::Program;
-using executorch::runtime::Result;
 
 ET_NODISCARD Error run_program() {
 
@@ -50,13 +47,13 @@ ET_NODISCARD Error run_program() {
   std::span<float, std::dynamic_extent> shared_memory_view_span{
       shared_memory_info.first, shared_memory_info.second};
 
-  auto set_cache_info = shared_memory_manager.get_buffer<float>("set_cache", 0);
-  std::span<float, std::dynamic_extent> set_cache_view_span{
-      set_cache_info.first, set_cache_info.second};
+//   auto set_cache_info = shared_memory_manager.get_buffer<float>("set_cache", 0);
+//   std::span<float, std::dynamic_extent> set_cache_view_span{
+//       set_cache_info.first, set_cache_info.second};
 
-  auto get_cache_info = shared_memory_manager.get_buffer<float>("get_cache", 0);
-  std::span<float, std::dynamic_extent> get_cache_view_span{
-      get_cache_info.first, get_cache_info.second};
+//   auto get_cache_info = shared_memory_manager.get_buffer<float>("get_cache", 0);
+//   std::span<float, std::dynamic_extent> get_cache_view_span{
+//       get_cache_info.first, get_cache_info.second};
 
   ET_CHECK_OK_OR_RETURN_ERROR(
       MultiEntryModule.load_method(
@@ -89,6 +86,9 @@ ET_NODISCARD Error run_program() {
                                                         });
 
   std::fill(input, input + batch_size * seq_len, 1.0f);
+
+  ET_UNWRAP(MultiEntryModule.execute(init_method),
+            "Failed to execute et_module_init");
 
   // Run the model.
   auto result = MultiEntryModule.execute("set_cache", tensor);
