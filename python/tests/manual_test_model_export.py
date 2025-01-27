@@ -19,6 +19,26 @@ class StatefulModel(torch.nn.Module):
             persistent=True,
         )
 
+        self.register_buffer(
+            "cache_wierd_size",
+            torch.zeros((1, 3), dtype=torch.uint8),
+            persistent=True,
+        )
+
+        self.register_buffer(
+            "cache2",
+            torch.zeros((max_batch_size, 10), dtype=torch.float32),
+            persistent=True,
+        )
+
+        self.register_buffer(
+            "cache3",
+            torch.zeros((max_batch_size, 3), dtype=torch.float32),
+            persistent=True,
+        )
+
+       
+
     # need sliceing here:
     def set_cache(self, data: torch.Tensor):
         self.cache[0 : data.shape[0], 0 : data.shape[1]] = data
@@ -44,6 +64,9 @@ def test_stateful_export():
 
     # Register the buffer by fqn
     exporter.register_shared_buffer("cache")
+    exporter.register_shared_buffer("cache_wierd_size")
+    exporter.register_shared_buffer("cache2")
+    exporter.register_shared_buffer("cache3")
 
     # Define dynamic dimensions
     batch_size = Dim("batch_size_dim", min=1, max=max_batch_size)
@@ -66,9 +89,11 @@ def test_stateful_export():
         ),
     )
 
+    constant_methods = {'my_const_function':torch.zeros(3,3)}
+
     # Export process
     exporter.export()
-    exporter.to_edge()
+    exporter.to_edge(constant_methods=constant_methods)
     exporter.to_executorch()
 
     # # Save model

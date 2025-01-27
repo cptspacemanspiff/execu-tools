@@ -34,7 +34,7 @@ MultiEntryPointRunner::MultiEntryPointRunner(
   // initailize the shared memory manager: (this allocates the memory for the
   // methods), but methods are still not loaded yet.
   this->shared_memory_manager_ = std::make_unique<SharedMemoryManager>(
-      module_.program(), shared_memory_ids_, init_method_name_);
+      module_.program());
 }
 
 executorch::runtime::Error MultiEntryPointRunner::load_method(

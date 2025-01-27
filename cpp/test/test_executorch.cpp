@@ -43,8 +43,7 @@ ET_NODISCARD Error run_program() {
                            "Program is not loaded");
 
   // use the shared_ptr program to construct a shared memory manager:
-  executools::SharedMemoryManager shared_memory_manager(
-      program, {shared_memory_id}, init_method);
+  executools::SharedMemoryManager shared_memory_manager(program);
   // internal memory view for debugging:
   auto shared_memory_info =
       shared_memory_manager.get_buffer<float>(init_method, shared_memory_id);

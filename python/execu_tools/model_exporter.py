@@ -1,6 +1,7 @@
 # file that helps generate the exporter
 import copy
 from dataclasses import dataclass, field
+from functools import reduce
 from pathlib import Path
 from types import MethodType
 from typing import Callable, Optional
@@ -34,6 +35,12 @@ import executorch.exir.dialects.edge
 
 import executorch.exir.dialects.edge.op
 
+# RESERVED FUNCTION NAMES FOR SHARED BUFFERS:
+# init function (used by memory planning pass)
+ET_SHARED_BUFFER_INIT_FN = "et_module_init"
+# constant methods to pass the shared buffer memory plan to the runtime:
+ET_GET_SHARED_BUFFER_NAMES_FN = "et_get_shared_buffer_names"
+ET_GET_SHARED_BUFFER_MEMORY_PLAN_FN = "et_get_shared_buffer_memory_plan"
 
 @contextmanager
 def patch_forward(obj: torch.nn.Module, new_method):
@@ -106,11 +113,17 @@ class SharedMemoryPlanningPass(MemoryPlanningPass):
                     buffer_name = graph_signature.inputs_to_buffers[node.target]
                     if buffer_name in self.shared_buffers:
                         # this node is in our shared buffers:
-                        # we need to save mem_id, mem_obj_id, and mem_offset:
+                        # we need to save mem_id, mem_obj_id, and mem_offset, 
+                        # as well as the actual size of the buffer:
+
+                        num_elements = reduce(lambda x, y: x * y, node.meta["spec"].shape)
                         self.shared_buffers_memory_layout[buffer_name] = {
                             "mem_id": node.meta["spec"].mem_id,
                             "mem_obj_id": node.meta["spec"].mem_obj_id,
                             "mem_offset": node.meta["spec"].mem_offset,
+                            "mem_allocated_size": node.meta["spec"].allocated_memory,
+                            "mem_actual_size": num_elements * node.meta["spec"].dtype.itemsize,
+                            "num_elements": num_elements,
                         }
             self.shared_buffer_size = parent_result.graph_module.meta[
                 "non_const_buffer_sizes"
@@ -165,6 +178,41 @@ def initialize_shared_memory_planning(
 
     # turn off the memory planning pass init shared buffers:
     backend_config.memory_planning_pass.init_shared_buffers = False
+    return backend_config.memory_planning_pass.shared_buffers_memory_layout
+
+def create_shared_buffer_memory_info_constant_methods(shared_buffer_info: dict):
+    # we need to create 2 shared buffer constant methods to pass the shared buffer memory info to the runtime:
+    # 1. has the names of the shared buffers (ie the keys of the dicts) as c strings in a 2d byte tensor.
+    # 2. has the memory info for each shared buffer as a 2d size_t tensor.
+
+    #todo clean this up.
+    def string_to_tensor(string: str):
+        return torch.tensor([string.encode("utf-8")], dtype=torch.uint8)
+
+
+    list_of_str_tensors = []
+    list_of_mem_info_tensors = []
+    for key, val in shared_buffer_info.items():
+        # convert the key to a c string:
+        list_of_str_tensors.append(string_to_tensor(key))
+        # memory info:
+        mem_info_tensor = torch.tensor([val["mem_id"], val["mem_obj_id"], val["mem_offset"], val["mem_allocated_size"], val["mem_actual_size"], val["num_elements"]], dtype=torch.long)
+        list_of_mem_info_tensors.append(mem_info_tensor)
+    
+    # get the max length of the strings:
+    max_len = max([tensor.size(1) for tensor in list_of_str_tensors])
+    num_strings = len(list_of_str_tensors)
+    # create a 2d tensor with the strings (add 1 for the null terminator):
+    str_tensor = torch.zeros((num_strings, max_len + 1), dtype=torch.uint8)
+    for i, tensor in enumerate(list_of_str_tensors):
+        str_tensor[i, :tensor.size(1)] = tensor[:]
+
+    # create a 2d tensor with the memory info:
+    mem_info_tensor = torch.zeros((num_strings, 6), dtype=torch.long)
+    for i, tensor in enumerate(list_of_mem_info_tensors):
+        mem_info_tensor[i, :len(tensor)] = tensor
+    
+    return str_tensor, mem_info_tensor
 
 
 def add_buffer_mutation_to_graph(
@@ -538,8 +586,7 @@ class MultiEntryPointExporter:
         if self.edge_program is None:
             raise ValueError("No edge program found. to_edge() must be called first.")
 
-        # deepcopy the edge program for later use
-        self.edge_program_copy = copy.deepcopy(self.edge_program)
+
 
         # create a shared memory planning pass:
         shared_memory_planning_pass = SharedMemoryPlanningPass(
@@ -557,8 +604,17 @@ class MultiEntryPointExporter:
         )
 
         # initialize the shared buffers (this will set the memory layout of the shared buffers):
-        initialize_shared_memory_planning(backend_config, self.edge_program)
+        shared_layout_dict = initialize_shared_memory_planning(backend_config, self.edge_program)
 
+        # hack this in as an additional constant_method to pass memory planning data to the runtime for
+        name_tensor, memory_plan_tensor = create_shared_buffer_memory_info_constant_methods(shared_layout_dict)
+        if not self.edge_program._config_methods:
+            self.edge_program._config_methods = {}
+        self.edge_program._config_methods[ET_GET_SHARED_BUFFER_NAMES_FN] = name_tensor
+        self.edge_program._config_methods[ET_GET_SHARED_BUFFER_MEMORY_PLAN_FN] = memory_plan_tensor
+        
+        # deepcopy the edge program for later use
+        self.edge_program_copy = copy.deepcopy(self.edge_program)
         # Export for real (now that we have the shared buffer memory layout):
         self.executorch_program = self.edge_program.to_executorch(config=backend_config)
 

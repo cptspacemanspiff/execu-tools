@@ -213,7 +213,7 @@ class EncoderDecoderWrapper(torch.nn.Module):
         self.next_tokens.fill_(0)
 
         # # elements outside of the batch size are set to 0: (may not be needed)
-        self.unfinished_sequences.fill_(0)
+        self.unfinished_sequences.fill_(1)
         narrowed_unfinished_sequences = torch.narrow(
             self.unfinished_sequences, 0, 0, batch_size
         )

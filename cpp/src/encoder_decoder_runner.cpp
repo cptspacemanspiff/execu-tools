@@ -1,5 +1,4 @@
 #include <ExecuTools/encoder_decoder_runner.h>
-#include <cstddef>
 #include <cstdint>
 #include <executorch/extension/tensor/tensor_ptr.h>
 #include <executorch/extension/tensor/tensor_ptr_maker.h>
@@ -47,9 +46,6 @@ EncoderDecoderRunner::run(const std::vector<std::string> &input_strings) {
   auto [tokens, mask] = tokenizer_->EncodeBatchWithMask(input_strings, true);
   ET_LOG(Info, "Encoded %zu strings, with a length of %zu.", tokens.size(),
          tokens[0].size());
-
-  int batch_size = tokens.size();
-  int seq_len = tokens[0].size();
 
   // load the methods TODO: (move to init section)
   ET_CHECK_OK_OR_RETURN_ERROR(this->module_.load_method("et_module_init"),
