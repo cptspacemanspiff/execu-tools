@@ -3,8 +3,6 @@ from transformers.modeling_outputs import BaseModelOutput
 from transformers.cache_utils import EncoderDecoderCache
 from transformers.generation.stopping_criteria import StoppingCriteriaList
 from transformers.generation.logits_process import LogitsProcessorList
-from transformers.tokenization_utils_fast import TokenizerFast
-from transformers.convert_slow_tokenizer import convert_slow_tokenizer
 
 
 class EncoderDecoderWrapper(torch.nn.Module):
@@ -127,10 +125,11 @@ class EncoderDecoderWrapper(torch.nn.Module):
         # handle stopping criteria
         if self.has_eos_stopping_criteria:
             next_tokens = (
-                next_tokens * self.unfinished_sequences[:batch_size].to(torch.int)
+                next_tokens * self.unfinished_sequences[:batch_size]
                 + self.generation_config._pad_token_tensor.to(torch.int)
-                * (torch.tensor(1, dtype=torch.int) - self.unfinished_sequences[:batch_size].to(torch.int))
+                * (torch.tensor(1, dtype=torch.int) & ~self.unfinished_sequences[:batch_size])
             )[:batch_size]
+            pass
 
         self.unfinished_sequences[:batch_size] = self.unfinished_sequences[
             :batch_size

@@ -3,6 +3,7 @@
 #include <executorch/devtools/etdump/etdump_flatcc.h>
 #include <executorch/runtime/core/error.h>
 #include <executorch/runtime/platform/assert.h>
+#include <executorch/runtime/platform/log.h>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -48,6 +49,7 @@ int main(int argc, char **argv) {
 
   // Run the runner
   auto maybe_result = runner.run(input_strings);
+  
   // write out the et_dump
   std::cout << std::endl; // new line after callbacks are done.
 
@@ -65,11 +67,13 @@ int main(int argc, char **argv) {
   ofs.close();
 
 
-  ET_CHECK_MSG(maybe_result == executorch::runtime::Error::Ok,
+  ET_CHECK_MSG(maybe_result.ok(),
                "\n    Decoder runner run, ran into something.");
 
-  // torch::executor::etdump_result result = runner.save_event_tracer_dump();
-
+  std::cout << "Runner ran, generated output strings:" << std::endl;
+  for (const auto &output_string : maybe_result.get()) {
+    std::cout << "   '" << output_string << "'" << std::endl;
+  }
 
   return 0;
 }

@@ -1,6 +1,5 @@
 # Load model directly
 
-import copy
 import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
@@ -89,7 +88,7 @@ def test_encoder_decoder_export(model_name="Helsinki-NLP/opus-mt-en-fr"):
     print(f"Reference output: {reference_text}")
 
     # Test wrapper implementation
-    model_wrapper = setup_wrapper(model)
+    model_wrapper = setup_wrapper(model, max_batch_size=2)
     all_tokens = generate_with_wrapper(model_wrapper, input_ids)
     wrapper_text = tokenizer.decode(all_tokens[0], skip_special_tokens=False)
     print(f"Wrapper output: {wrapper_text}")
@@ -98,6 +97,31 @@ def test_encoder_decoder_export(model_name="Helsinki-NLP/opus-mt-en-fr"):
         wrapper_text == reference_text
     ), f"Expected: {reference_text}\nGot: {wrapper_text}"
 
+
+def test_encoder_decoder_export_2(model_name="Helsinki-NLP/opus-mt-en-fr"):
+    max_generation_length = 25
+    model, tokenizer = setup_model_and_tokenizer(model_name, max_generation_length)
+
+    test_input = [
+        "When the night has come and the land is dark.",
+        "Hello World"
+    ]
+    input_ids = tokenizer(test_input, return_tensors="pt", padding=True)
+
+    # Get reference output
+    reference_output = model.generate(**input_ids)
+    reference_text = tokenizer.decode(reference_output[0], skip_special_tokens=False)
+    print(f"Reference output: {reference_text}")
+
+    # Test wrapper implementation
+    model_wrapper = setup_wrapper(model,max_batch_size=2)
+    all_tokens = generate_with_wrapper(model_wrapper, input_ids)
+    wrapper_text = tokenizer.decode(all_tokens[0], skip_special_tokens=False)
+    print(f"Wrapper output: {wrapper_text}")
+
+    assert (
+        wrapper_text == reference_text
+    ), f"Expected: {reference_text}\nGot: {wrapper_text}"
 
 def test_max_length_completion(model_name="Helsinki-NLP/opus-mt-en-fr"):
     """Test that generation stops when max_length is reached."""

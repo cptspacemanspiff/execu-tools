@@ -39,7 +39,7 @@ void EncoderDecoderRunner::set_decoder_callback(
   this->decoder_callback_ = decoder_callback;
 }
 
-executorch::runtime::Error
+executorch::runtime::Result<std::vector<std::string>>
 EncoderDecoderRunner::run(const std::vector<std::string> &input_strings) {
 
   // encode the input strings:
@@ -74,7 +74,7 @@ EncoderDecoderRunner::run(const std::vector<std::string> &input_strings) {
       executorch::extension::clone_tensor_ptr(encoder_output[2].toTensor());
 
   // write the new tokens to the decoder callback:
-  this->decoder_callback_(tensors_to_strings(new_tokens));
+  this->decoder_callback_(tensors_to_strings(executorch::extension::make_tensor_ptr(new_tokens)));
   
   while (finished[0] != true) {
     // call the decoder:
@@ -89,10 +89,10 @@ EncoderDecoderRunner::run(const std::vector<std::string> &input_strings) {
         executorch::extension::clone_tensor_ptr(decoder_output[2].toTensor());
 
     // write the new tokens to the decoder callback:
-    this->decoder_callback_(tensors_to_strings(new_tokens));
+    this->decoder_callback_(tensors_to_strings(executorch::extension::make_tensor_ptr(new_tokens)));
   }
 
-  return executorch::runtime::Error::Ok;
+  return tensors_to_strings(past_decoder_outputs);
 }
 
 executorch::runtime::Error EncoderDecoderRunner::initialize_tokenizer() {
@@ -162,16 +162,16 @@ EncoderDecoderRunner::strings_to_tensors(
 }
 
 std::vector<std::string> EncoderDecoderRunner::tensors_to_strings(
-    const executorch::runtime::etensor::Tensor &tensor_ptr) {
-  auto data = tensor_ptr.const_data_ptr<int32_t>();
+    const executorch::extension::TensorPtr &tensor_ptr) {
+  auto data = tensor_ptr->const_data_ptr<int32_t>();
   std::vector<std::string> decoded_strings;
 
   // todo dont use a for loop, construct the vector directly from data.
-  int batch_size = tensor_ptr.size(0);
+  int batch_size = tensor_ptr->size(0);
   for (int i = 0; i < batch_size; i++) {
     std::vector<int> decoded_tokens_for_sequence;
-    for (int j = 0; j < tensor_ptr.size(1); j++) {
-      decoded_tokens_for_sequence.push_back(data[i * tensor_ptr.size(1) + j]);
+    for (int j = 0; j < tensor_ptr->size(1); j++) {
+      decoded_tokens_for_sequence.push_back(data[i * tensor_ptr->size(1) + j]);
     }
     decoded_strings.push_back(
         this->tokenizer_->Decode(decoded_tokens_for_sequence));
