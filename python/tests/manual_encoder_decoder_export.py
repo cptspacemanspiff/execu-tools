@@ -65,7 +65,7 @@ def export_model():
         constant_dict = {}
 
         fast_tokenizer = get_fast_tokenizer(tokenizer)
-        constant_dict["tokenizer_blob"] = torch.tensor([fast_tokenizer.to_str().encode("utf-8")], dtype=torch.uint8)
+        constant_dict["tokenizer_blob"] = torch.tensor([fast_tokenizer.to_str().encode("utf-8")], dtype=torch.uint8).squeeze()
         # Initialize exporter
         exporter = MultiEntryPointExporter(model_wrapper)
 

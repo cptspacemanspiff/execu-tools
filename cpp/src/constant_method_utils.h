@@ -43,6 +43,9 @@ executorch::extension::TensorPtr execute_constant_method_with_temp_memory(
 std::vector<std::string>
 tensor_cstr_to_string(const executorch::extension::TensorPtr &tensor);
 
+std::string
+tensor_byte_blob_to_string(const executorch::extension::TensorPtr &tensor);
+
 } // namespace constant_method_utils
 
 } // namespace executools

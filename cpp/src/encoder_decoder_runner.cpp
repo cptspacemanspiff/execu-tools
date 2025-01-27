@@ -1,3 +1,4 @@
+#include "constant_method_utils.h"
 #include <ExecuTools/encoder_decoder_runner.h>
 #include <cstdint>
 #include <executorch/extension/tensor/tensor_ptr.h>
@@ -12,7 +13,6 @@
 #include <executorch/runtime/platform/log.h>
 #include <memory>
 #include <string>
-#include <string_view>
 #include <tokenizers_cpp.h>
 #include <vector>
 
@@ -31,7 +31,15 @@ EncoderDecoderRunner::EncoderDecoderRunner(
   this->event_tracer()->set_event_tracer_profiling_level(
       executorch::runtime::EventTracerProfilingLevel::kProfileAllEvents);
 
-  initialize_tokenizer();
+  // initialize the tokenizer:
+  auto tokenizer_blob_tensor = this->execute("tokenizer_blob", {});
+  ET_CHECK_MSG(tokenizer_blob_tensor.ok() == 1,
+               "Could not execute tokenizer_blob method, was it exported?");
+  std::string tokenizer_blob_str =
+      constant_method_utils::tensor_byte_blob_to_string(
+          executorch::extension::TensorPtr(
+              &tokenizer_blob_tensor.get()[0].toTensor()));
+  this->tokenizer_ = std::make_unique<HFStringTokenizer>(tokenizer_blob_str);
 }
 
 void EncoderDecoderRunner::set_decoder_callback(
@@ -41,20 +49,17 @@ void EncoderDecoderRunner::set_decoder_callback(
 
 executorch::runtime::Result<std::vector<std::string>>
 EncoderDecoderRunner::run(const std::vector<std::string> &input_strings) {
-
-  // encode the input strings:
-  auto [tokens, mask] = tokenizer_->EncodeBatchWithMask(input_strings, true);
-  ET_LOG(Info, "Encoded %zu strings, with a length of %zu.", tokens.size(),
-         tokens[0].size());
-
   // run the init to zero out data: (probably not needed.)
   auto et_init_method = ET_UNWRAP(this->execute("et_module_init", {}),
                                   "Could not execute et_module_init method");
 
   // run the encoder + prefill:
   auto [encoder_input, encoder_mask] =
-      ET_UNWRAP(strings_to_tensors(input_strings),
+      ET_UNWRAP(this->tokenizer_->strings_to_tensors(input_strings),
                 "Could not convert strings to tensors");
+
+  ET_LOG(Info, "Encoded %zu strings, with a length of %zu.",
+         encoder_input->size(0), encoder_input->size(1));
 
   // TODO get the token from the model.
   auto prefill_prompt = executorch::extension::empty(
@@ -74,8 +79,8 @@ EncoderDecoderRunner::run(const std::vector<std::string> &input_strings) {
       executorch::extension::clone_tensor_ptr(encoder_output[2].toTensor());
 
   // write the new tokens to the decoder callback:
-  this->decoder_callback_(
-      tensors_to_strings(executorch::extension::make_tensor_ptr(new_tokens)));
+  this->decoder_callback_(this->tokenizer_->tensors_to_strings(
+      executorch::extension::make_tensor_ptr(new_tokens)));
 
   while (finished[0] != true) {
     // call the decoder:
@@ -89,95 +94,9 @@ EncoderDecoderRunner::run(const std::vector<std::string> &input_strings) {
         executorch::extension::clone_tensor_ptr(decoder_output[2].toTensor());
 
     // write the new tokens to the decoder callback:
-    this->decoder_callback_(
-        tensors_to_strings(executorch::extension::make_tensor_ptr(new_tokens)));
+    this->decoder_callback_(this->tokenizer_->tensors_to_strings(
+        executorch::extension::make_tensor_ptr(new_tokens)));
   }
 
-  return tensors_to_strings(past_decoder_outputs);
-}
-
-executorch::runtime::Error EncoderDecoderRunner::initialize_tokenizer() {
-  // pull the tokenizer json from the model:
-  auto method_names = ET_UNWRAP(module_.method_names(),
-                                "Could not get method names in tokenizer "
-                                "initialization");
-  ET_CHECK_OR_RETURN_ERROR(
-      method_names.find("tokenizer_blob") != method_names.end(), NotImplemented,
-      "tokenizer_blob method not found in model, was it exported?");
-
-  // get the tokenizer blob:
-  std::vector<executorch::runtime::EValue> tokenizer_blob_tensor =
-      ET_UNWRAP(module_.execute("tokenizer_blob"),
-                "Could not execute tokenizer_blob method");
-
-  auto tensor = tokenizer_blob_tensor[0].toTensor();
-  std::string_view tokenizer_blob_view(
-      reinterpret_cast<const char *>(tensor.const_data_ptr()), tensor.nbytes());
-  std::string tokenizer_blob_str(tokenizer_blob_view.data(),
-                                 tokenizer_blob_view.size());
-  this->tokenizer_ = tokenizers::HFTokenizer::FromBlobJSON(tokenizer_blob_str);
-
-  ET_LOG(Info, "Successfully loaded HF Tokenizer blob, beginning with: %s ...",
-         tokenizer_blob_str.substr(0, 20).c_str());
-  return executorch::runtime::Error::Ok;
-}
-
-executorch::runtime::Result<std::pair<executorch::extension::TensorPtr,
-                                      executorch::extension::TensorPtr>>
-EncoderDecoderRunner::strings_to_tensors(
-    const std::vector<std::string> &input_strings) {
-  // encode the input strings:
-  auto [tokens, mask] = tokenizer_->EncodeBatchWithMask(input_strings, true);
-  ET_LOG(Info, "Encoded %zu strings, with a length of %zu.", tokens.size(),
-         tokens[0].size());
-
-  // TODO: add checks for size
-  int batch_size = tokens.size();
-  int seq_len = tokens[0].size();
-
-  using TokenType = int32_t;
-  auto kTokenType = executorch::aten::ScalarType::Int;
-
-  // // construct the input to the encoder:
-  auto encoder_input = executorch::extension::empty(
-      {batch_size, seq_len}, kTokenType,
-      executorch::runtime::TensorShapeDynamism::DYNAMIC_UNBOUND);
-  auto uint32 = encoder_input->mutable_data_ptr<TokenType>();
-  for (int i = 0; i < batch_size; i++) {
-    for (int j = 0; j < seq_len; j++) {
-      uint32[i * seq_len + j] = tokens[i][j];
-    }
-  }
-
-  auto encoder_mask = executorch::extension::empty(
-      {batch_size, seq_len}, executorch::aten::ScalarType::Int,
-      executorch::runtime::TensorShapeDynamism::DYNAMIC_UNBOUND);
-  auto bool_ptr = encoder_mask->mutable_data_ptr<int32_t>();
-  for (int i = 0; i < batch_size; i++) {
-    for (int j = 0; j < seq_len; j++) {
-      bool_ptr[i * seq_len + j] = bool(mask[i][j]);
-    }
-  }
-
-  return std::make_pair(encoder_input, encoder_mask);
-}
-
-std::vector<std::string> EncoderDecoderRunner::tensors_to_strings(
-    const executorch::extension::TensorPtr &tensor_ptr,
-    bool skip_special_tokens) {
-  auto data = tensor_ptr->const_data_ptr<int32_t>();
-  std::vector<std::string> decoded_strings;
-
-  // todo dont use a for loop, construct the vector directly from data.
-  int batch_size = tensor_ptr->size(0);
-  for (int i = 0; i < batch_size; i++) {
-    std::vector<int> decoded_tokens_for_sequence;
-    for (int j = 0; j < tensor_ptr->size(1); j++) {
-      decoded_tokens_for_sequence.push_back(data[i * tensor_ptr->size(1) + j]);
-    }
-    decoded_strings.push_back(this->tokenizer_->Decode(
-        decoded_tokens_for_sequence, skip_special_tokens));
-  }
-
-  return decoded_strings;
+  return this->tokenizer_->tensors_to_strings(past_decoder_outputs);
 }

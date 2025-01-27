@@ -26,7 +26,8 @@ executorch::extension::TensorPtr execute_constant_method_with_temp_memory(
                                                     nullptr};
 
   // load the method:
-  auto method = program->load_method(method_name.c_str(), &memory_manager, event_tracer);
+  auto method =
+      program->load_method(method_name.c_str(), &memory_manager, event_tracer);
   ET_CHECK_MSG(method.ok(), "Constant method %s failed to load",
                method_name.c_str());
 
@@ -79,6 +80,16 @@ tensor_cstr_to_string(const executorch::extension::TensorPtr &tensor) {
   }
 
   return strings;
+}
+
+std::string
+tensor_byte_blob_to_string(const executorch::extension::TensorPtr &tensor) {
+  // make sure that the tensor is 1d:
+  ET_CHECK_MSG(tensor->dim() == 1, "Tensor is not 1d (num_bytes)");
+
+  std::string tokenizer_blob_str(tensor->const_data_ptr<char>(),
+                                 tensor->size(0));
+  return tokenizer_blob_str;
 }
 
 } // namespace constant_method_utils
