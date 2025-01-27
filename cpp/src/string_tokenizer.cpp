@@ -6,10 +6,12 @@
 using namespace executools;
 
 HFStringTokenizer::HFStringTokenizer(const std::string &tokenizer_blob_str) {
-  ET_LOG(Info, "Loading HF Tokenizer blob, beginning with: %s ...",
+  ET_LOG(Info, "HFStringTokenizer: Loading HF Tokenizer blob, "
+                "beginning with: %s ...",
          tokenizer_blob_str.substr(0, 20).c_str());
   this->tokenizer_ = tokenizers::HFTokenizer::FromBlobJSON(tokenizer_blob_str);
-  ET_LOG(Info, "Successfully loaded HF Tokenizer blob, beginning with: %s ...",
+  ET_LOG(Info, "HFStringTokenizer: Successfully loaded HF Tokenizer blob, "
+                "beginning with: %s ...",
          tokenizer_blob_str.substr(0, 20).c_str());
 }
 
@@ -19,8 +21,8 @@ HFStringTokenizer::strings_to_tensors(
     const std::vector<std::string> &input_strings) {
   // encode the input strings:
   auto [tokens, mask] = tokenizer_->EncodeBatchWithMask(input_strings, true);
-  ET_LOG(Info, "Encoded %zu strings, with a length of %zu.", tokens.size(),
-         tokens[0].size());
+  ET_LOG(Info, "HFStringTokenizer: Encoded %zu strings, with a length of %zu.",
+         tokens.size(), tokens[0].size());
 
   // TODO: add checks for size
   int batch_size = tokens.size();

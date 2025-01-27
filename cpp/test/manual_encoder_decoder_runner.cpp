@@ -7,6 +7,7 @@
 #include <memory>
 #include <ostream>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace executools;
@@ -25,9 +26,10 @@ int main(int argc, char **argv) {
       ->required()
       ->expected(1, -1); // Accept 1 or more inputs
 
-  std::vector<uint8_t> debug_buffer(10e6);// 10mb should be enough?
+  std::vector<uint8_t> debug_buffer(10e6); // 10mb should be enough?
   auto et_dump_gen_original = std::make_unique<executorch::etdump::ETDumpGen>();
-  et_dump_gen_original->set_debug_buffer({debug_buffer.data(), debug_buffer.size()});
+  et_dump_gen_original->set_debug_buffer(
+      {debug_buffer.data(), debug_buffer.size()});
   // Parse the command line
   CLI11_PARSE(app, argc, argv);
   EncoderDecoderRunner runner(
@@ -39,9 +41,9 @@ int main(int argc, char **argv) {
       [](const std::vector<std::string> &new_token_strings) {
         std::cout << "[";
         for (const auto &token_string : new_token_strings) {
-          std::cout << "'"<<token_string << "',";
+          std::cout << "'" << token_string << "',";
         }
-        std::cout << "]" <<   std::flush;
+        std::cout << "]" << std::flush;
       };
 
   runner.set_decoder_callback(decoder_callback);
@@ -53,10 +55,9 @@ int main(int argc, char **argv) {
 
   // Run the runner
   auto maybe_result = runner.run(input_strings);
-  
+
   // write out the et_dump
   std::cout << std::endl; // new line after callbacks are done.
-
 
   auto buffer = runner.get_event_tracer_dump();
 
@@ -69,7 +70,6 @@ int main(int argc, char **argv) {
   std::ofstream ofs(et_dump_path.string(), std::ios::out | std::ios::binary);
   ofs.write(reinterpret_cast<const char *>(buffer.data()), buffer.size());
   ofs.close();
-
 
   ET_CHECK_MSG(maybe_result.ok(),
                "\n    Decoder runner run, ran into something.");

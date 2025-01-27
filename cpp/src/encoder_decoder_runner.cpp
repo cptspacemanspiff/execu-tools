@@ -26,12 +26,19 @@ EncoderDecoderRunner::EncoderDecoderRunner(
     std::unique_ptr<executorch::runtime::EventTracer> event_tracer)
     : MultiEntryPointRunner(model_path, load_mode, std::move(event_tracer)) {
 
-  this->event_tracer()->set_event_tracer_debug_level(
-      executorch::runtime::EventTracerDebugLogLevel::kProgramOutputs);
-  this->event_tracer()->set_event_tracer_profiling_level(
-      executorch::runtime::EventTracerProfilingLevel::kProfileAllEvents);
-
+  ET_LOG(Info, "EncoderDecoderRunner: Initializing event tracer");
+  if (this->event_tracer() != nullptr) {
+    ET_LOG(Info, "EncoderDecoderRunner: Setting event tracer debug level");
+    this->event_tracer()->set_event_tracer_debug_level(
+        executorch::runtime::EventTracerDebugLogLevel::kProgramOutputs);
+    ET_LOG(Info, "EncoderDecoderRunner: Setting event tracer profiling level");
+    this->event_tracer()->set_event_tracer_profiling_level(
+        executorch::runtime::EventTracerProfilingLevel::kProfileAllEvents);
+  } else {
+    ET_LOG(Info, "EncoderDecoderRunner: No event tracer provided");
+  }
   // initialize the tokenizer:
+  ET_LOG(Info, "EncoderDecoderRunner: Initializing tokenizer");
   auto tokenizer_blob_tensor = this->execute("tokenizer_blob", {});
   ET_CHECK_MSG(tokenizer_blob_tensor.ok() == 1,
                "Could not execute tokenizer_blob method, was it exported?");
