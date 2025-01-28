@@ -219,7 +219,7 @@ SharedMemoryManager::get_buffer(const std::string &method_name, size_t mem_id,
 
   ET_CHECK_MSG(buffer_ptr != nullptr, "Buffer pointer is null");
 
-  if (mem_size_byte == 0 & mem_offset_byte == 0) {
+  if ((mem_size_byte == 0) & (mem_offset_byte == 0)) {
     // return the entire buffer:
     return std::make_pair(buffer_ptr, buffer_size);
   }
