@@ -93,24 +93,24 @@ executorch::runtime::Error MultiEntryPointRunner::initialize_program() {
   return executorch::runtime::Error::Ok;
 }
 
-std::vector<uint8_t> MultiEntryPointRunner::get_event_tracer_dump() {
-  executorch::runtime::EventTracer *event_tracer = module_.event_tracer();
+// std::vector<uint8_t> MultiEntryPointRunner::get_event_tracer_dump() {
+//   executorch::runtime::EventTracer *event_tracer = module_.event_tracer();
 
-  if (event_tracer == nullptr) {
-    ET_LOG(Error, "MultiEntryPointRunner event tracer was not set (nullptr)");
-    return std::vector<uint8_t>();
-  }
+//   if (event_tracer == nullptr) {
+//     ET_LOG(Error, "MultiEntryPointRunner event tracer was not set (nullptr)");
+//     return std::vector<uint8_t>();
+//   }
 
-  auto *et_dump_gen =
-      dynamic_cast<executorch::etdump::ETDumpGen *>(event_tracer);
-  ET_CHECK_MSG(et_dump_gen != nullptr,
-               "Failed to cast event tracer to ETDumpGen");
-  auto buffer = et_dump_gen->get_etdump_data();
+//   auto *et_dump_gen =
+//       dynamic_cast<executorch::etdump::ETDumpGen *>(event_tracer);
+//   ET_CHECK_MSG(et_dump_gen != nullptr,
+//                "Failed to cast event tracer to ETDumpGen");
+//   auto buffer = et_dump_gen->get_etdump_data();
 
-  // Create a new vector with the buffer data
-  auto size = buffer.size;
-  std::vector<uint8_t> result(size);
-  std::copy_n(static_cast<const uint8_t *>(buffer.buf), size, result.data());
+//   // Create a new vector with the buffer data
+//   auto size = buffer.size;
+//   std::vector<uint8_t> result(size);
+//   std::copy_n(static_cast<const uint8_t *>(buffer.buf), size, result.data());
 
-  return result;
-}
+//   return result;
+// }

@@ -59,16 +59,17 @@ int main(int argc, char **argv) {
   // write out the et_dump
   std::cout << std::endl; // new line after callbacks are done.
 
-  auto buffer = runner.get_event_tracer_dump();
 
   // write out the et_dump
   // grab the directory from the model path and filename without extension
   auto dir = std::filesystem::path(model_path).parent_path();
   auto file_name = std::filesystem::path(model_path).stem();
   auto et_dump_path = dir / (file_name.string() + ".etdump");
-
+  auto buffer =
+      static_cast<executorch::etdump::ETDumpGen *>(runner.event_tracer())
+          ->get_etdump_data();
   std::ofstream ofs(et_dump_path.string(), std::ios::out | std::ios::binary);
-  ofs.write(reinterpret_cast<const char *>(buffer.data()), buffer.size());
+  ofs.write(reinterpret_cast<const char *>(buffer.buf), buffer.size);
   ofs.close();
 
   ET_CHECK_MSG(maybe_result.ok(),

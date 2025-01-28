@@ -23,12 +23,10 @@ public:
       executorch::extension::Module::LoadMode load_mode,
       std::unique_ptr<executorch::runtime::EventTracer> event_tracer);
 
-  std::vector<uint8_t> get_event_tracer_dump();
+  executorch::runtime::EventTracer *event_tracer();
 
 protected:
   // methods exposed from module:
-
-  executorch::runtime::EventTracer *event_tracer();
 
   executorch::runtime::Result<std::vector<executorch::runtime::EValue>>
   execute(const std::string &method_name,
@@ -46,7 +44,6 @@ protected:
    * @return executorch::runtime::Error
    */
   executorch::runtime::Error validate_method(const std::string &method_name);
-
 
   executorch::extension::Module module_;
 
@@ -72,7 +69,6 @@ private:
   executorch::runtime::Error load_methods();
 
   executorch::runtime::Error initialize_program();
-
 
   std::unique_ptr<executools::SharedMemoryManager> shared_memory_manager_;
 

@@ -119,7 +119,7 @@ ET_NODISCARD Error run_program() {
 
   {
     auto event_tracer = MultiEntryModule.event_tracer();
-    auto et_out = dynamic_cast<executorch::etdump::ETDumpGen *>(event_tracer);
+    auto et_out = static_cast<executorch::etdump::ETDumpGen *>(event_tracer);
     auto buffer = et_out->get_etdump_data();
 
     // Create a new vector with the buffer data
