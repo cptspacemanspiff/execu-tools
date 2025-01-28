@@ -23,7 +23,7 @@ If one were to niavely export this:
 The issue with this is that the decoder also has to take the encoder outputs, and since there is no data-dependent branching (to check whether they have already been calculated), it will need to recalculate the cross-attention cache every time.
 
 ```
-Side Note: coming back to the re-writing the model, it could be possible to place a torch.cond, however the conditionals cannot have side affects. 
+Side Note 1: coming back to the re-writing the model, it could be possible to place a torch.cond, however the conditionals cannot have side affects. 
 So:
   1. In one branch you calculate and save the cross attention cache to the internal state buffer.
   2. while in the other you only read the internal state buffer.
@@ -35,7 +35,7 @@ So a solution to this is `just have 2 different functions that share the state`.
 It also keeps more of the heavy lifting in python, reducing the possibility of differences between the python implementation thats exported and the c++ runtime side.
 
 ```
-Another alternative would be to pass the kv cache state as a user input, then one can manually manage the tensor outside of the graph, and pass it between multiple graphs that modify it.
+Side Note 2: Another alternative would be to pass the kv cache state as a user input, then one can manually manage the tensor outside of the graph, and pass it between multiple graphs that modify it.
 
 The problem that comes up here is that:
 1. Thats more work on the runtime c++ side, and more chances for errors.
@@ -66,7 +66,7 @@ This type of multiple method export does seem to have some level of undocumented
 So we want to share state between multiple exported methods, how do we do that?
 
 ```
-Sidetrack: How memory and storage works in the executorch export process and runtime:
+Side Note 3: How memory and storage works in the executorch export process and runtime:
 
 Memory in executorch is all pre-planned. During the export a model function, during the final steps of export, the graph is walked and each op-argument is associated with a memory location, consisting of a mem_id, an offset into that id, and a size. It will keep track of lifetimes, and reuse locations in memory if possible (if you use the greedy algorithm). 
 
@@ -81,6 +81,47 @@ With the above in mind, if we could somehow get the pointers to the internal sta
 
 ### How to have shared memory pointers at runtime:
 
-The first thing that needs to be done, is during export, we need to make sure that all shared buffers locations are the same between methods. The easiest way to do this is to place them into a shared mem_id, then on the runtime side, when we instatiate that mem_id, we reuse the buffer between the multiple methods.
+The first thing that needs to be done, is during export, we need to make sure that all shared buffers locations are identical between methods. The easiest way to do this is to place them into a shared mem_id, then on the runtime side, when we instatiate that mem_id, we can reuse the buffer between the multiple methods.
 
-This works, and was very easy to initially get working, but has an issue of how do we gurantee that the layout of objects within a memory ID is the same between all methods.
+This works, and is fairly straightforward, mainly due to the multiple memory arenas, and the fact that the memory planners are designed to account for different backend providers having some objects in different IDs. So assuming that we have a list of shared buffers, in our custom memory planner we check if a buffer object is `shared` and if so, set it's mem_id to a custom location: `2`. 
+
+Of course this runs into the issue of how do we ensure that the memory layout within a memory id is consistant between methods?
+
+Specifically, there are two issues:
+1. The order of objects in a the mem_id is dependent on the order in which they are encountered in the export graph.
+2. Not all methods have/access all buffers.
+
+To solve this, we have a synthetic method, which is automatically from our list of shared buffers. All this method does is go through each buffer and modifies them (sets them to 0). We call hard code this method `et_module_init` and hard code it.
+
+Now when we go to generate the memory plan we have a couple steps:
+1. we run the generation process on our synthetic `et_module_init` method first, that generates a layout that includes every shared buffer. 
+2. Save off this memory plan for our shared mem_id.
+3. Rerun memory planning on all methods, placing any shared objects used into mem_id: `2`
+4. Once the plan is done, overwrite the plan for each object in mem_id 2 with the plan that we previously generated.
+
+And viola, we have a common set of memory locations for all shared buffers across all methods, we even got an initialization method for free.
+
+However, there is an issue, namely the case where a shared buffer is used but not modified.
+
+```
+Side Note 4: 
+
+The torch.export/executorch pipeline handles different tensors, there are parameters, constant tensors, user inputs, and buffer state. During torch.export the graph is functionalized, and all 
+
+
+For Instance:
+what was initially:
+
+```python
+inputs_embeds = self.embed_tokens(input_ids) * self.embed_scale
+```
+After torch.export:
+```
+%mul : [num_users=1] = call_function[target=torch.ops.aten.mul.Tensor](args = (%embedding, 22.627416997969522), kwargs = {})
+```
+After to_edge:
+```
+
+```
+
+```
