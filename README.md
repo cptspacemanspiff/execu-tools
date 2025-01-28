@@ -282,11 +282,10 @@ However, there is an issue, namely the case where a shared buffer is used but no
 ### What if our method does not modify the buffer?
 
 <!-- <details> -->
-
 <summary> <b>Side-Note 4:</b> <i>Export handling of buffers, constants, parameters and inputs</i></summary>
  
->The torch.export/executorch pipeline handles buffers, constants, parameters and inputs differently. During torch.export the graph is functionalized, 
-
+>The torch.export/executorch pipeline handles buffers, constants, parameters and inputs differently. During torch.export and to_edge, the graph is functionalized, and any side effects, or values used in the graph are lifted to the graph inputs and outputs.
+>
 >For Instance:
 >
 >What was initially:
@@ -299,11 +298,15 @@ However, there is an issue, namely the case where a shared buffer is used but no
 >```
 >After to_edge:
 >```
->
+>%aten_mul_tensor : [num_users=1] = call_function[target=torch.ops.aten.mul.out](args = (%aten_embedding_default, %_lifted_tensor_constant29), kwargs = {out: %alloc_2})
 >```
+>
+> At the same time, there is a separate graph signature object. This keeps track of input/output and their behavior. Particularly it will keep track 
+>
+>
 <!-- </details> -->
 
-This causes issues because the export pipline treats constant buffers and mutable buffers differently.
+This causes issues because the export pipeline treats constant buffers and mutable buffers differently.
 1. **constant buffers:** what is inferred if we access a registered buffer of a pytorch model, but do not modify it.
 2. **mutable buffers,** what is inferred if we modify a registered buffer.
 
@@ -330,7 +333,7 @@ def set_cache(self, x):
     self.cache.copy_(x)
 ```
 
-After to_edge, we go through the graph and remove any of these _stupid_ operations. Specifically any copy operation where both the source and target are the same location, and is also in our shared buffer list. 
+After to_edge, we go through the graph and remove any copy operation where both the source and target are the same location, which also in our shared buffer list. 
 
-For `get_cache()`, fact that we have mutated the cache value is no longer in the graph. However it does remain in the graph signature, and in the final stage of export copies to buffers are added back in, as long as they are not pointing to themselves.
+Finally, For `get_cache()`, fact that we have mutated the cache value is no longer in the graph. However it does remain in the graph signature, and in the final stage of export copies to buffers are added back in, as long as they are not pointing to themselves.
 
