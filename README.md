@@ -8,6 +8,35 @@ Because of this, even models that run with torch.compile in strict mode can be h
 
 My solution to this is to be able to call multiple torch.module methods and have them share state. Then we get behavior most like torch compile/ the python torch.
 
+## Quick-Start (tested on ubuntu 22.04):
+
+This has alot of my personal branches, but to build it run these commands:
+
+Note: make sure rust is installed first, and ninja.
+
+It uses a unholy mixture of cmake's fetch content and submodules:
+* fetchcontent
+  * executorch
+  * CMakeTools (personal cmake build library, because writing good cmake is a pain in the ***)
+  * CLI11
+  * tokenizer-cpp (for hugging face tokenizer wrapper+hugging face rust lib),
+* and manual bash (for my branch of transformers)
+
+1. creates a python venv. 
+2. It runs the cmake configure fetching dependencies.
+3. builds/installs executorch python lib.
+4. it then installs executools python component
+5. it installs my branch of transformers.
+6. it then runs the executools c++ project build, rebuilding executorch in the process.
+
+```bash
+git clone git@github.com:cptspacemanspiff/execu-tools.git
+git submodule update --init --recursive
+cd execu-tools
+./setup.sh
+```
+
+
 ## API:
 
 To do this I created a `MultiEntryPointExporter` class that manages the export process, the api for its use is below:
