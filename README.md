@@ -230,5 +230,3 @@ The exporter also does a few other things:
 >My objective is to build cool AI related stuff with awesome people, ideally in a fast-paced environment while having a blast doing it. I currently live on the east coast, but am willing to relocate to most anywhere... but not Texas.
 >
 >[LinkedIn](https://www.linkedin.com/in/nicholas-long-z42/)
-
-```
