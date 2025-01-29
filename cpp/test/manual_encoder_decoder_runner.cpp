@@ -33,7 +33,7 @@ int main(int argc, char **argv) {
   // Parse the command line
   CLI11_PARSE(app, argc, argv);
   EncoderDecoderRunner runner(
-      model_path, executorch::extension::Module::LoadMode::MmapUseMlock,
+      model_path, executorch::extension::Module::LoadMode::File,
       std::move(et_dump_gen_original));
 
   // create a decoder callback lambda:
