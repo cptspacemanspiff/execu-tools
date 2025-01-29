@@ -183,8 +183,8 @@ If one were to naively export this:
 
 The issue with this is that the decoder also has to take the encoder outputs, and since there is no data-dependent branching (to check whether they have already been calculated), it will need to recalculate the cross-attention cache every time.
 
-<!-- <details> -->
-<!-- <summary><b>Side-Note 1:</b> <i>Why not add explicit branching torch.cond() and rewrite the model?</i></summary> -->
+<details>
+<summary><b>Side-Note 1:</b> <i>Why not add explicit branching torch.cond() and rewrite the model?</i></summary>
 
 >
 >Coming back to the re-writing the model, it could be possible to place a torch.cond, however the conditionals cannot have side affects. 
@@ -193,7 +193,7 @@ So:
 >  2. while in the other you only read the internal state buffer.
 >
 >However in both cases, outside the torch.cond branch the entire self attention cache always needs to be copied back to the internal state buffer, even if it was not modified. This is less than ideal, because most of the time you are only reading the self attention cache, and only modify it once.
-<!-- </details> -->
+</details>
 
 So a solution to this is (and what this project does): 
 
@@ -205,16 +205,16 @@ It also keeps more of the heavy lifting in python, reducing the possibility of d
 
 
 Side Note 2: Another alternative would be to pass the kv cache state as a user input, then one can manually manage the tensor outside of the graph, and pass it between multiple graphs that modify it.
-<!-- <details> -->
+<details>
 
 <summary><b>Side-Note 2:</b> <i>Why not pass the state as user input.</i></summary>
 
-The problem that comes up here is that:
-1. Thats more work on the runtime c++ side, and more chances for errors.
-2. User inputs must be tensors, one cannot pass in a arbitrary object with a bunch of registered buffers. This is a pain, for instance the static cache implementation from hugging face for the OPUS model has (5 layers x 2 key/value cache x 2 self/cross attention) = 20 registered buffers, which each have to be passed individually, and managed, in c++.
-3. Less general, say we get a new model that is nearly the same, but we have 3 layers, now the c++ side and the user side needs to change.
+>The problem that comes up here is that:
+>1. Thats more work on the runtime c++ side, and more chances for errors.
+>2. User inputs must be tensors, one cannot pass in a arbitrary object with a bunch of registered buffers. This is a pain, for instance the static cache implementation from hugging face for the OPUS model has (5 layers x 2 key/value cache x 2 self/cross attention) = 20 registered buffers, which each have to be passed individually, and managed, in c++.
+>3. Less general, say we get a new model that is nearly the same, but we have 3 layers, now the c++ side and the user side needs to change.
 
-<!-- </details> -->
+</details>
 
 So shared state between multiple exported methods of a model would be useful, how do we get it working?
 
@@ -240,7 +240,7 @@ This type of multiple-method export does seem to have some level of undocumented
 
 So we want to share state between multiple exported methods, how do we do that?
 
-<!-- <details> -->
+<details>
 
 <summary><b>Side-Note 3:</b> <i>How memory and storage works in the executorch export process and runtime.</i></summary>
 
@@ -251,7 +251,7 @@ So we want to share state between multiple exported methods, how do we do that?
 >One thing to note is the concept of memory IDs / memory arenas. The purpose of this is so that the runtime can do different allocations for different types of storage, particularly regarding the backends. IE GPU memory vs Main memory, or SRAM/DRAM on some weird FPGA device. 
 >
 >In any case, each memory ID is allocated separately, as chosen by the runtime implementer, and currently most things seem to use a single memory ID due to many phones/edge devices having a single type of memory.
-<!-- </details> -->
+</details>
 
 So, with the above in mind, if we could somehow get the pointers to the internal state buffers to point to the same location in memory at runtime, we would have shared state between all the methods of our exported model.
 
@@ -281,7 +281,7 @@ However, there is an issue, namely the case where a shared buffer is used but no
 
 ### What if our method does not modify the buffer?
 
-<!-- <details> -->
+<details>
 <summary> <b>Side-Note 4:</b> <i>Export handling of buffers, constants, parameters and inputs</i></summary>
  
 >The torch.export/executorch pipeline handles buffers, constants, parameters and inputs differently. During torch.export and to_edge, the graph is functionalized, and any side effects, or values used in the graph are lifted to the graph inputs and outputs.
@@ -304,7 +304,7 @@ However, there is an issue, namely the case where a shared buffer is used but no
 > At the same time, there is a separate graph signature object. This keeps track of input/output and their behavior. Particularly it will keep track 
 >
 >
-<!-- </details> -->
+</details>
 
 This causes issues because the export pipeline treats constant buffers and mutable buffers differently.
 1. **constant buffers:** what is inferred if we access a registered buffer of a pytorch model, but do not modify it.
@@ -337,3 +337,17 @@ After to_edge, we go through the graph and remove any copy operation where both 
 
 Finally, For `get_cache()`, fact that we have mutated the cache value is no longer in the graph. However it does remain in the graph signature, and in the final stage of export copies to buffers are added back in, as long as they are not pointing to themselves.
 
+###
+
+>PS: If you read this far, I am just finishing off taking for a year long travel trip, and am currently unemployed and am actively looking for work.
+>
+>I started down this rabbit hole b/c I wanted to do on-device AI for a side-project, to get more experience in the types of projects I want to work on and to have something to show off. 
+>Also building this is way more fun and interesting than throwing my resume into the ether when applying for jobs and grinding leetcode. 
+>
+>If you found it useful, are hiring (or know someone), I would love to work on this type of thing and get paid for it.
+>
+> My objective is to build cool AI related stuff with awesome people, I currently live on the east coast, but am willing to relocate to most anywhere... but not Texas.
+>
+>[LinkedIn](https://www.linkedin.com/in/nicholas-long-z42/)
+
+```
