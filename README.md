@@ -33,8 +33,8 @@ It uses a unholy mixture of cmake's fetch content and submodules:
 
 ```bash
 git clone git@github.com:cptspacemanspiff/execu-tools.git
-git submodule update --init --recursive
 cd execu-tools
+git submodule update --init --recursive
 ./setup.sh
 ```
 
