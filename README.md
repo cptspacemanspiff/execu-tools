@@ -1,5 +1,5 @@
 # Overview:
-
+>[!NOTE]
 > This is my understanding after just about a month of looking at this, so there is a high possibility that my understanding is incorrect. I would appreciate feedback.
 
 When using executor to run models models with state, it can become painful. The biggest issue that I have encountered was that unlike torch.compile torch.export does not allow (easily) for data-dependent control flow.
@@ -190,7 +190,7 @@ A more in depth writeup on the export process on rational/why I did it is here: 
 
 The exporter also does a few other things:
 
-* It passes the shared buffer memory plan to the runtime via 2 constant methods, one contains a tensor of cstr buffer names and alongside each buffer's memory plan. This makes it easy to view debug info on the runtime side, though currently I have only used it in the debugger.
+* It passes the shared buffer memory plan to the runtime via 2 constant methods, one contains a tensor of c-string buffer names and alongside each buffer's memory plan. This makes it easy to view debug info on the runtime side, though currently I have only used it in the debugger. It also allows the runtime to dynamically identify the memory ID
 * It auto saves a ton of data for the export process, including etrecord and memory debugging plan.
 
 ## Sharp Edges, My personal to-do list, bugs I still need to create tests/issues for:
@@ -198,10 +198,12 @@ The exporter also does a few other things:
 ### Todo:
 
 * Currently have not dug into the quantization or tested this running on a backend.
-* The current memory planner on the c++ side places each method's non shared memory in a memory specific buffer. This is less than Ideal because it means ram usage grows with the number of methods exported.
+* The current memory planner on the c++ side places each method's non shared memory in a method specific buffer. This is less than Ideal because it means ram usage grows with the number of methods exported.
   * On the export side I need to add a check that all method state buffers are marked as shared, then pass a flag to the runtime, to say 'reuse the largest buffer for all planned methods.' This should be safe b/c we cannot call methods at the same time anyway.
+  * in the future it might be useful to auto-detect these buffers, which would probably make auto exporting more models easier.
+* The inspector for etdumps/etrecord support is not great. (I made changes to make it work but there is weird behavior.)
 * I want to integrate this w/ the bundled program stuff so that we can get validation testing at the same time.
-* The module export wrappers are a work in prograss, I have really only exported 1, the opus model. My goal is to generally have wrappers that map to hugging face model types. 
+* The module export wrappers are a work in progress, I have really only exported 1, the opus model. My goal is to generally have wrappers that map to hugging face model types. 
 * This is relying on my branch of Transformers, executorch, and tokenizers-cpp, I need to finish my pull-requests and get stuff merged (I had been waiting to make sure that my understanding/proof of concept worked)
 * add more unit tests.
 * do a search through my code and do everything marked `todo`
@@ -209,14 +211,15 @@ The exporter also does a few other things:
 ### Sharp edges:
 
 * might be obvious, but this is not thread safe.
+* While I tried to not use any explicit dynamic memory allocations on the runtime side, I am using std::vector all over the place, so...
 * The method of adding a "stupid" copy operation to ensure that a buffer is marked mutable might be fragile. In an ideal world that would be optimized out, the fact that it is not might be considered a bug. 
 
 ### Bugs (still need to dig into/ add an issue): 
 
-* torch.export dynamic shapes infer constant if the example to trace is the same size as the dynamic dimentions max, (or min?). I throw a error in this lib if you do this, but it should be fixed/error out in torch.export.
-* optimized kernals segfault if batch=2 in the translation example. have not looked yet.
+* torch.export dynamic shapes infer constant if the example to trace is the same size as the dynamic dimensions max, (or min?). I throw a error in this lib if you do this, but it should be fixed/error out in torch.export.
+* optimized kernels segfault if batch=2 in the translation example. have not looked yet.
 
->[!NOTE]
+>[!TIP]
 >If you read this far, I am just finishing off taking for a year long travel sabbatical, am currently unemployed and am actively looking for work.
 >
 >I started down this rabbit hole b/c I wanted to do on-device AI for a side-project, to get more experience in the types of projects I want to work on and to have something to show off. 
