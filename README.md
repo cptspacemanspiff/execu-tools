@@ -12,7 +12,9 @@ My solution to this is to be able to call multiple torch.module methods and have
 
 This has alot of my personal branches, but to build it run these commands:
 
-Note: make sure rust is installed first, and ninja.
+>[!NOTE]
+>make sure rust is installed first, and ninja.
+>rust is for huggingface tokenizers, used in the runtime build of the translation example, ninja is because I use `-G Ninja` in the setup script (delete if you don't have ninja.).
 
 It uses a unholy mixture of cmake's fetch content and submodules:
 * fetchcontent
@@ -36,7 +38,7 @@ cd execu-tools
 ./setup.sh
 ```
 
-### to run the examples(from the project root):
+### Examples(from the project root):
 #### StatefulModel:
 
 Export the program:
