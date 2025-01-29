@@ -203,7 +203,10 @@ The exporter also does a few other things:
   * in the future it might be useful to auto-detect these buffers, which would probably make auto exporting more models easier.
 * The inspector for etdumps/etrecord support is not great. (I made changes to make it work but there is weird behavior.)
 * I want to integrate this w/ the bundled program stuff so that we can get validation testing at the same time.
-* The module export wrappers are a work in progress, I have really only exported 1, the opus model. My goal is to generally have wrappers that map to hugging face model types. 
+* The module export wrappers are a work in progress, I have really only exported 1, the opus model. My goal is to generally have wrappers that map to hugging face model types.
+  * I figure as I export more models, the process will gradually get more general, as I lift more things that are model specific into the wrapper initialization logic.
+  * also need to have automated unit tests for the models in the wrapper so that validating python-python behavior is consistant.
+* I am using a hacked in argmax for greedy search, ideally I would like to use huggingface search implementations directly (sampling, beam, etc.) I have not yet started investigating what needs to be done in order to get them export compatable, and am also unsure if the methods required are in core aten (ie torch.multinomial for sampling). But it would be awesome to the sampler and beam search decoding working in this so nothing needs to be rewritten in c++.  
 * This is relying on my branch of Transformers, executorch, and tokenizers-cpp, I need to finish my pull-requests and get stuff merged (I had been waiting to make sure that my understanding/proof of concept worked)
 * add more unit tests.
 * do a search through my code and do everything marked `todo`
@@ -211,7 +214,7 @@ The exporter also does a few other things:
 ### Sharp edges:
 
 * might be obvious, but this is not thread safe.
-* While I tried to not use any explicit dynamic memory allocations on the runtime side, I am using std::vector all over the place, so...
+* While I tried to not use any explicit dynamic memory allocations on the runtime side, I am using std::vector all over the place, so so much for that.
 * The method of adding a "stupid" copy operation to ensure that a buffer is marked mutable might be fragile. In an ideal world that would be optimized out, the fact that it is not might be considered a bug. 
 
 ### Bugs (still need to dig into/ add an issue): 
