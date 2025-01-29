@@ -36,6 +36,79 @@ cd execu-tools
 ./setup.sh
 ```
 
+### to run the examples(from the project root):
+#### StatefulModel:
+
+Export the program:
+
+Creates artifacts in: python/tests/export_artifacts/StatefulModel
+```bash
+python python/tests/manual_test_model_export.py 
+```
+
+run the c++ code.
+
+```bash
+./cpp/build/stage/bin/ExecuToolsModuleTest
+```
+
+
+#### OPUS en-fr translation:
+
+Export the program:
+
+Creates artifacts in: python/tests/export_artifacts/StatefulModel
+```bash
+python python/tests/manual_encoder_decoder_export.py
+```
+
+run the c++ code, with a batch size of 2.
+
+```bash
+./cpp/build/stage/bin/ExecuToolsEncoderDecoder \
+--model python/tests/export_artifacts/EncoderDecoderWrapper/opus_encoder_decoder_model.pte \
+--input "Hello World" "when the night has come and the land is dark."
+```
+
+This should produce the output:
+```
+I 00:00:00.003197 executorch:shared_memory_manager.cpp:123] Allocated normal buffer for method et_module_init, memory id 0, size 1344
+I 00:00:00.003215 executorch:shared_memory_manager.cpp:135] Allocated shared buffer for method et_module_init, memory id 1, size 1344
+I 00:00:00.003229 executorch:shared_memory_manager.cpp:123] Allocated normal buffer for method set_cache, memory id 0, size 2400
+I 00:00:00.003232 executorch:shared_memory_manager.cpp:146] Reusing shared buffer for method set_cache, memory id 1, size 1344
+I 00:00:00.003238 executorch:shared_memory_manager.cpp:123] Allocated normal buffer for method get_cache, memory id 0, size 1600
+I 00:00:00.003241 executorch:shared_memory_manager.cpp:146] Reusing shared buffer for method get_cache, memory id 1, size 1344
+I 00:00:00.003351 executorch:test_executorch.cpp:79] Test passed
+(.executools_venv) nlong@zelfron:~/execu-tools$ ./cpp/build/stage/bin/ExecuToolsEncoderDecoder \--model python/tests/export_artifacts/EncoderDecoderWrapper/opus_encoder_decoder_model.pte \--input "Hello World" "When the night has come and the land is dark"^C
+(.executools_venv) nlong@zelfron:~/execu-tools$ ./cpp/build/stage/bin/ExecuToolsEncoderDecoder \
+--model python/tests/export_artifacts/EncoderDecoderWrapper/opus_encoder_decoder_model.pte \
+--input "Hello World" "when the night has come and the land is dark."
+I 00:00:00.000200 executorch:multi_entry_point_runner.cpp:22] MultiEntryPointRunner: Initializing executorch program
+I 00:00:00.032356 executorch:multi_entry_point_runner.cpp:26] MultiEntryPointRunner: Initializing shared memory manager
+I 00:00:00.037710 executorch:shared_memory_manager.cpp:123] Allocated normal buffer for method et_module_init, memory id 0, size 8496752
+I 00:00:00.041594 executorch:shared_memory_manager.cpp:135] Allocated shared buffer for method et_module_init, memory id 1, size 6170224
+I 00:00:00.158923 executorch:shared_memory_manager.cpp:123] Allocated normal buffer for method reset_encode_prefill, memory id 0, size 189229328
+I 00:00:00.158938 executorch:shared_memory_manager.cpp:146] Reusing shared buffer for method reset_encode_prefill, memory id 1, size 6170224
+I 00:00:00.274785 executorch:shared_memory_manager.cpp:123] Allocated normal buffer for method decode, memory id 0, size 186694416
+I 00:00:00.274801 executorch:shared_memory_manager.cpp:146] Reusing shared buffer for method decode, memory id 1, size 6170224
+I 00:00:00.274856 executorch:multi_entry_point_runner.cpp:32] MultiEntryPointRunner: Loading methods
+I 00:00:00.278592 executorch:multi_entry_point_runner.cpp:37] MultiEntryPointRunner: Constructor Complete
+I 00:00:00.278599 executorch:encoder_decoder_runner.cpp:29] EncoderDecoderRunner: Initializing event tracer
+I 00:00:00.278603 executorch:encoder_decoder_runner.cpp:31] EncoderDecoderRunner: Setting event tracer debug level
+I 00:00:00.278606 executorch:encoder_decoder_runner.cpp:34] EncoderDecoderRunner: Setting event tracer profiling level
+I 00:00:00.278610 executorch:encoder_decoder_runner.cpp:41] EncoderDecoderRunner: Initializing tokenizer
+I 00:00:00.279587 executorch:string_tokenizer.cpp:9] HFStringTokenizer: Loading HF Tokenizer blob, beginning with: {"version":"1.0","tr ...
+I 00:00:00.346325 executorch:string_tokenizer.cpp:13] HFStringTokenizer: Successfully loaded HF Tokenizer blob, beginning with: {"version":"1.0","tr ...
+Running runner, with input strings: 
+  'Hello World'
+  'when the night has come and the land is dark.'
+I 00:00:00.352909 executorch:string_tokenizer.cpp:24] HFStringTokenizer: Encoded 2 strings, with a length of 12.
+I 00:00:00.352923 executorch:encoder_decoder_runner.cpp:68] Encoded 2 strings, with a length of 12.
+['<pad> Bonjour','<pad> quand',]['Monde','la',]['</s>','nuit',]['<pad>','est',]['<pad>','venue',]['<pad>','et',]['<pad>','que',]['<pad>','la',]['<pad>','terre',]['<pad>','est',]['<pad>','sombre',]['<pad>','.',]['<pad>','</s>',]
+Runner ran, generated output strings:
+   '<pad> Bonjour Monde</s><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad>'
+   '<pad> quand la nuit est venue et que la terre est sombre.</s>'
+```
 
 ## API:
 
