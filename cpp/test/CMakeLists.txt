@@ -21,11 +21,8 @@ find_package(CLI11 CONFIG REQUIRED)
 cmt_add_executable(ExecuToolsEncoderDecoder manual_encoder_decoder_runner.cpp)
 
 target_link_libraries(
-  ${CMT_LAST_TARGET}
-  PRIVATE ExecuTools::ExecuTools
-          # optimized_native_cpu_ops_lib TODO: Bug in the case where batch size is not 1.
-          portable_ops_lib
-          CLI11::CLI11)
+  ${CMT_LAST_TARGET} PRIVATE ExecuTools::ExecuTools ${EXECUTOOLS_LINK_LIBS}
+                             CLI11::CLI11)
 
 # ##############################################################################
 # Manual Test stuff for initial debugging... Individual capabilities will be
