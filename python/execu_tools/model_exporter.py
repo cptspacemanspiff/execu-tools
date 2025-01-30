@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from functools import reduce
 from pathlib import Path
 from types import MethodType
-from typing import Callable, Optional
+from typing import Callable, Optional, Any
 from operator import attrgetter
 import executorch.exir
 import executorch.exir.dialects
@@ -554,7 +554,9 @@ class MultiEntryPointExporter:
     #     pass
 
     def to_edge(
-        self, constant_methods: dict =None, partitioners: list = None
+        self, 
+        to_edge_function: Callable = to_edge, #to_edge_transform_and_lower
+        **kwargs: Any
     ) -> EdgeProgramManager:
         # export the model graphs to the edge:
         if len(self.method_graphs) == 0:
@@ -562,9 +564,9 @@ class MultiEntryPointExporter:
                 "No method graphs found. Please trace (export) the model first."
             )
 
-        edge_program: EdgeProgramManager = to_edge(
+        edge_program: EdgeProgramManager = to_edge_function(
             self.method_graphs,
-            constant_methods=constant_methods,
+            **kwargs,
         )
 
         for method in edge_program._edge_programs:

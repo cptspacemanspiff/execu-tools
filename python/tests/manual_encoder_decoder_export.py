@@ -151,6 +151,9 @@ def export_model():
             f"Successfully exported model functions: {exporter.registered_method_dict.keys()}"
         )
         exporter.to_edge(constant_methods=constant_dict)
+        # from executorch.exir.program._program import to_edge_transform_and_lower
+        # from executorch.backends.xnnpack import XnnpackPartitioner
+        # exporter.to_edge(to_edge_function=to_edge_transform_and_lower, constant_methods=constant_dict, partitioner=[XnnpackPartitioner()])
         print(f"Successfully converted to edge")
         exporter.to_executorch()
         print(f"Successfully converted to executorch")
