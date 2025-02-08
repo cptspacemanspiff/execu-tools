@@ -121,7 +121,7 @@ class EncoderDecoderWrapper(torch.nn.Module):
         if self.has_eos_stopping_criteria:
             next_tokens = (
                 next_tokens * self.unfinished_sequences[:batch_size]
-                + self.generation_config._pad_token_tensor.to(torch.int)
+                + self.generation_config._pad_token_tensor
                 * (torch.tensor(1, dtype=torch.int) & ~self.unfinished_sequences[:batch_size])
             )[:batch_size]
             pass

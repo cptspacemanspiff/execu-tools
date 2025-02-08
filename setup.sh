@@ -30,7 +30,7 @@ echo "Using Python environment: $(which python)"
 
 # Regular setup continues
 # pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cpu -U
-pip install tomli zstd tomli
+pip install tomli zstd tomli cmake ninja
 
 # download executorch:
 unset CC CXX # make sure we use the system compiler
