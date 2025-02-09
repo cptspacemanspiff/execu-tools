@@ -25,13 +25,15 @@ ET_NODISCARD Error run_program() {
 
   ET_CHECK_OK_OR_RETURN_ERROR(
       MultiEntryModule.load_method(
-          "set_cache", nullptr,
-          shared_memory_manager.get_allocator("set_cache").get()),
+          "set_cache", 
+          shared_memory_manager.get_allocator("set_cache").get(),
+          nullptr),
       "Failed to load set_cache");
   ET_CHECK_OK_OR_RETURN_ERROR(
       MultiEntryModule.load_method(
-          "get_cache", nullptr,
-          shared_memory_manager.get_allocator("get_cache").get()),
+          "get_cache",
+          shared_memory_manager.get_allocator("get_cache").get(),
+          nullptr),
       "Failed to load get_cache");
 
   const int batch_size = 10;

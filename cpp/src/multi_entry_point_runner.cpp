@@ -60,8 +60,9 @@ executorch::runtime::Error MultiEntryPointRunner::load_method(
   // uses the event tracer of the module
   ET_CHECK_OK_OR_RETURN_ERROR(
       module_.load_method(
-          method_name, event_tracer,
-          shared_memory_manager_->get_allocator(method_name).get()),
+          method_name,
+          shared_memory_manager_->get_allocator(method_name).get(),
+          event_tracer),
       "Load_method: Failed to load method: %s", method_name.c_str());
   return executorch::runtime::Error::Ok;
 }
