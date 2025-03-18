@@ -10,10 +10,10 @@ class EncoderDecoderWrapper(torch.nn.Module):
         super().__init__()
         self.model = model
 
-        self.shared_fqn = []
+        self.shared_buffer_fqns = []
         # add the cache:
         self.cache = cache
-        self.shared_fqn.append("cache")
+        self.shared_buffer_fqns.append("cache")
         if type(self.cache) is EncoderDecoderCache:
             self_attn_cache = self.cache.self_attention_cache
             cross_attn_cache = self.cache.cross_attention_cache
@@ -33,7 +33,7 @@ class EncoderDecoderWrapper(torch.nn.Module):
             torch.zeros(max_batch_size, max_encoder_sequence_length, 512),
         )
 
-        self.shared_fqn.append("encoder_output")
+        self.shared_buffer_fqns.append("encoder_output")
 
         # setup static things that are not part of execution (follow generate roughly)
         # get the bos id
@@ -60,15 +60,15 @@ class EncoderDecoderWrapper(torch.nn.Module):
         self.register_buffer(
             "unfinished_sequences", torch.ones(max_batch_size, dtype=torch.bool)
         )
-        self.shared_fqn.append("unfinished_sequences")
+        self.shared_buffer_fqns.append("unfinished_sequences")
 
         self.register_buffer("cache_position", torch.zeros((1,), dtype=torch.long))
-        self.shared_fqn.append("cache_position")
+        self.shared_buffer_fqns.append("cache_position")
 
         self.register_buffer(
             "next_tokens", torch.zeros((max_batch_size, 1), dtype=torch.int)
         )  # should be 2d, with batch size as first dim.
-        self.shared_fqn.append("next_tokens")
+        self.shared_buffer_fqns.append("next_tokens")
         # get the logits processors:
         logits_processor = LogitsProcessorList()  # can override if needed
         self.prepared_logits_processor = self.model._get_logits_processor(
@@ -95,7 +95,7 @@ class EncoderDecoderWrapper(torch.nn.Module):
                 )
             ),
         )
-        self.shared_fqn.append("decoder_attention_mask")
+        self.shared_buffer_fqns.append("decoder_attention_mask")
 
     def format_prompt(self, prompt=None):
         # idea is to format the prompt in a standard way, TODO: reevaluate this.
@@ -106,7 +106,7 @@ class EncoderDecoderWrapper(torch.nn.Module):
         return tensor.to(torch.int)
 
     def get_shared_fqn(self):
-        return self.shared_fqn
+        return self.shared_buffer_fqns
 
     def get_tokenizer_json(self):
         return self.tokenizer.to_json_string()

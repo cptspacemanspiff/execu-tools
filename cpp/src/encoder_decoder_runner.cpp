@@ -30,7 +30,7 @@ EncoderDecoderRunner::EncoderDecoderRunner(
   if (this->event_tracer() != nullptr) {
     ET_LOG(Info, "EncoderDecoderRunner: Setting event tracer debug level");
     this->event_tracer()->set_event_tracer_debug_level(
-        executorch::runtime::EventTracerDebugLogLevel::kProgramOutputs);
+        executorch::runtime::EventTracerDebugLogLevel::kNoLogging);
     ET_LOG(Info, "EncoderDecoderRunner: Setting event tracer profiling level");
     this->event_tracer()->set_event_tracer_profiling_level(
         executorch::runtime::EventTracerProfilingLevel::kProfileAllEvents);

@@ -103,7 +103,7 @@
                     "ignoreFailures": true
                 }
             ],
-            "preLaunchTask": "ninja build"
+            // "preLaunchTask": "ninja build"
         },
         {
             "name": "cpp module test",

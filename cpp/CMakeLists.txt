@@ -26,7 +26,7 @@ set(EXECUTORCH_BUILD_XNNPACK ON)
 FetchContent_Declare(
   executorch
   GIT_REPOSITORY https://github.com/cptspacemanspiff/executorch.git
-  GIT_TAG multiple-entrypoint-shared-state
+  GIT_TAG v2-multiple-entrypoint-shared-state
   # root of executorch must be named executorch see:
   # https://github.com/pytorch/executorch/issues/6475
   SOURCE_DIR "${CMAKE_BINARY_DIR}/_deps/executorch" OVERRIDE_FIND_PACKAGE
