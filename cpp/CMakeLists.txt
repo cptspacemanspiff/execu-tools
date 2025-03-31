@@ -21,12 +21,13 @@ set(EXECUTORCH_BUILD_EXTENSION_TENSOR ON)
 set(EXECUTORCH_BUILD_EXTENSION_DATA_LOADER ON)
 set(EXECUTORCH_BUILD_EXTENSION_RUNNER_UTIL ON)
 set(EXECUTORCH_BUILD_DEVTOOLS ON)
+set(EXECUTORCH_ENABLE_EVENT_TRACER ON)
 set(EXECUTORCH_BUILD_XNNPACK ON)
 
 FetchContent_Declare(
   executorch
   GIT_REPOSITORY https://github.com/cptspacemanspiff/executorch.git
-  GIT_TAG multiple-entrypoint-shared-state
+  GIT_TAG main
   # root of executorch must be named executorch see:
   # https://github.com/pytorch/executorch/issues/6475
   SOURCE_DIR "${CMAKE_BINARY_DIR}/_deps/executorch" OVERRIDE_FIND_PACKAGE

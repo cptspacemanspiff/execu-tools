@@ -39,10 +39,8 @@ executorch::extension::TensorPtr execute_constant_method_with_temp_memory(
                method_name.c_str());
 
   // execute the method:
-  std::string block_name = "ExecuteConstantMethod::" + method_name;
-  std::string profile_event_name = "ExecuteConstantMethod::" + method_name;
   auto success =
-      method->execute(block_name.c_str(), profile_event_name.c_str());
+      method->execute();
   ET_CHECK_MSG(success == executorch::runtime::Error::Ok,
                "Constant method %s failed to execute", method_name.c_str());
 

@@ -30,13 +30,13 @@ echo "Using Python environment: $(which python)"
 
 # Regular setup continues
 # pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cpu -U
-pip install tomli zstd tomli cmake ninja
+uv pip install tomli zstd tomli cmake==3.31.6 ninja
 
 # download executorch:
 unset CC CXX # make sure we use the system compiler
 cd cpp && mkdir -p build && cd build
 # we are at cpp/build
-cmake .. -G Ninja # this downloads all c++ side deps
+cmake .. -G Ninja -DCMAKE_POLICY_VERSION_MINIMUM=3.5 # this downloads all c++ side deps
 # ninja
 
 # build + installexecutorch python package:
@@ -46,10 +46,10 @@ cd ./_deps/executorch/
 
 # install our updated versions of transformers:
 cd ../../../../  # we are now at the root of the repo
-pip install -e transformers
+uv pip install -e transformers
 
 # install executools python component:
-pip install -e python
+uv pip install -e python
 
 # We have built and installed the executorch python package, now build the c++ side of the project
 cd cpp/build

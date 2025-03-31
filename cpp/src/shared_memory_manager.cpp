@@ -254,7 +254,8 @@ SharedMemoryManager::get_shared_memory_plan_map(
   ET_CHECK_MSG(it != method_meta_map.end(),
                "Method %s not found in method_meta_map",
                reserved_fn_names::GET_SHARED_BUFFER_NAMES_FN);
-  it = method_meta_map.find(reserved_fn_names::GET_SHARED_BUFFER_MEMORY_PLAN_FN);
+  it =
+      method_meta_map.find(reserved_fn_names::GET_SHARED_BUFFER_MEMORY_PLAN_FN);
   ET_CHECK_MSG(it != method_meta_map.end(),
                "Method %s not found in method_meta_map",
                reserved_fn_names::GET_SHARED_BUFFER_MEMORY_PLAN_FN);

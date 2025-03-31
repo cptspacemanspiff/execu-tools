@@ -19,7 +19,7 @@ public:
   EncoderDecoderRunner(
       const std::string &model_path,
       executorch::extension::Module::LoadMode load_mode,
-      std::unique_ptr<executorch::runtime::EventTracer> event_tracer);
+      std::unique_ptr<executorch::runtime::EventTracer> event_tracer = nullptr);
 
   /**
    * @brief Set the decoder callback object that gets called after the decoder

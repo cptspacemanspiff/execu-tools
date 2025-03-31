@@ -33,8 +33,8 @@ int main(int argc, char **argv) {
   // Parse the command line
   CLI11_PARSE(app, argc, argv);
   EncoderDecoderRunner runner(
-      model_path, executorch::extension::Module::LoadMode::File,
-      std::move(et_dump_gen_original));
+      model_path, executorch::extension::Module::LoadMode::File);
+      // std::move(et_dump_gen_original));
 
   // create a decoder callback lambda:
   auto decoder_callback =
@@ -65,12 +65,12 @@ int main(int argc, char **argv) {
   auto dir = std::filesystem::path(model_path).parent_path();
   auto file_name = std::filesystem::path(model_path).stem();
   auto et_dump_path = dir / (file_name.string() + ".etdump");
-  auto buffer =
-      static_cast<executorch::etdump::ETDumpGen *>(runner.event_tracer())
-          ->get_etdump_data();
-  std::ofstream ofs(et_dump_path.string(), std::ios::out | std::ios::binary);
-  ofs.write(reinterpret_cast<const char *>(buffer.buf), buffer.size);
-  ofs.close();
+  // auto buffer =
+  //     static_cast<executorch::etdump::ETDumpGen *>(runner.event_tracer())
+  //         ->get_etdump_data();
+  // std::ofstream ofs(et_dump_path.string(), std::ios::out | std::ios::binary);
+  // ofs.write(reinterpret_cast<const char *>(buffer.buf), buffer.size);
+  // ofs.close();
 
   ET_CHECK_MSG(maybe_result.ok(),
                "\n    Decoder runner run, ran into something.");
