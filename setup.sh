@@ -10,7 +10,7 @@ cd "${SCRIPT_DIR}"
 clean_environment() {
     echo "Cleaning build environment..."
     rm -rf cpp/build
-    rm -rf .executools_venv
+    rm -rf .venv
     echo "Clean completed"
 }
 
@@ -22,34 +22,37 @@ fi
 
 # Create and activate Python virtual environment
 echo "Creating Python virtual environment..."
-python3 -m venv .executools_venv
+if [ ! -d ".venv" ] || [ $UV_VENV_CLEAR -eq 1 ]; then
+    uv venv
+fi
 source .executools_venv/bin/activate
+uv pip install -r requirements-dev.txt
 
 # Show which Python environment is being used
 echo "Using Python environment: $(which python)"
 
 # Regular setup continues
 # pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cpu -U
-uv pip install tomli zstd tomli cmake==3.31.6 ninja
+# uv pip install tomli zstd tomli cmake==3.31.6 ninja
 
 # download executorch:
 unset CC CXX # make sure we use the system compiler
 cd cpp && mkdir -p build && cd build
 # we are at cpp/build
-cmake .. -G Ninja -DCMAKE_POLICY_VERSION_MINIMUM=3.5 # this downloads all c++ side deps
+cmake .. # this downloads all c++ side deps
 # ninja
 
 # build + installexecutorch python package:
 cd ./_deps/executorch/
-./install_requirements.sh
+# ./install_requirements.sh
 ./install_executorch.sh
 
-# install our updated versions of transformers:
-cd ../../../../  # we are now at the root of the repo
-uv pip install -e transformers
+# # install our updated versions of transformers:
+# cd ../../../../  # we are now at the root of the repo
+# uv pip install -e transformers
 
-# install executools python component:
-uv pip install -e python
+# # install executools python component:
+# uv pip install -e python
 
 # We have built and installed the executorch python package, now build the c++ side of the project
 cd cpp/build

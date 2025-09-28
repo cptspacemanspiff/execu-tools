@@ -17,6 +17,7 @@ add_compile_definitions(ET_EVENT_TRACER_ENABLED=1)
 
 # args for executorch (not best place for this):
 set(EXECUTORCH_BUILD_EXTENSION_MODULE ON)
+set(EXECUTORCH_BUILD_EXTENSION_FLAT_TENSOR ON)
 set(EXECUTORCH_BUILD_EXTENSION_TENSOR ON)
 set(EXECUTORCH_BUILD_EXTENSION_DATA_LOADER ON)
 set(EXECUTORCH_BUILD_EXTENSION_RUNNER_UTIL ON)
@@ -24,31 +25,53 @@ set(EXECUTORCH_BUILD_DEVTOOLS ON)
 set(EXECUTORCH_ENABLE_EVENT_TRACER ON)
 set(EXECUTORCH_BUILD_XNNPACK ON)
 
+set(FETCHCONTENT_QUIET FALSE)
+set(FETCHCONTENT_UPDATES_DISCONNECTED TRUE)
+
+message(STATUS "Fetching dependencies...")
+message(STATUS "Fetching Executorch...")
 FetchContent_Declare(
   executorch
+  GIT_PROGRESS TRUE
   GIT_REPOSITORY https://github.com/cptspacemanspiff/executorch.git
   GIT_TAG main
   # root of executorch must be named executorch see:
   # https://github.com/pytorch/executorch/issues/6475
-  SOURCE_DIR "${CMAKE_BINARY_DIR}/_deps/executorch" OVERRIDE_FIND_PACKAGE
-  SYSTEM)
+  SOURCE_DIR "${CMAKE_BINARY_DIR}/_deps/executorch"
+  OVERRIDE_FIND_PACKAGE SYSTEM
+)
 FetchContent_MakeAvailable(executorch)
 
-FetchContent_Declare(
-  tokenizers-cpp
-  # GIT_REPOSITORY https://github.com/mlc-ai/tokenizers-cpp.git GIT_TAG main
-  GIT_REPOSITORY https://github.com/cptspacemanspiff/tokenizers-cpp.git
-  GIT_TAG return-attn-mask-from-hftokenizer
-  OVERRIDE_FIND_PACKAGE SYSTEM)
-FetchContent_MakeAvailable(tokenizers-cpp)
+message(STATUS "Fetching tokenizers-cpp...")
+# FetchContent_Declare(
+#   tokenizers-cpp
+#   GIT_PROGRESS TRUE
+#   # GIT_REPOSITORY https://github.com/mlc-ai/tokenizers-cpp.git GIT_TAG main
+#   GIT_REPOSITORY https://github.com/cptspacemanspiff/tokenizers-cpp.git
+#   GIT_TAG return-attn-mask-from-hftokenizer
+#   OVERRIDE_FIND_PACKAGE SYSTEM)
+# FetchContent_MakeAvailable(tokenizers-cpp)
 
+message(STATUS "Fetching GoogleTest...")
 FetchContent_Declare(
   googletest
+  GIT_PROGRESS TRUE
   GIT_REPOSITORY https://github.com/google/googletest.git
   GIT_TAG b514bdc898e2951020cbdca1304b75f5950d1f59 # release-1.15.2
   OVERRIDE_FIND_PACKAGE SYSTEM)
 
 FetchContent_MakeAvailable(googletest)
+
+Set(FETCHCONTENT_QUIET FALSE)
+
+FetchContent_Declare(
+  someTarget
+  GIT_REPOSITORY "https://github.com/someone/someTarget.git"
+  GIT_TAG "tag"
+  GIT_PROGRESS TRUE
+)
+
+message(STATUS "All dependencies fetched.")
 
 # Setup executorch library linking targets:
 if(EXECUTOOLS_LINK_OPTIMIZED)
@@ -62,5 +85,5 @@ endif()
 
 set(ET_LINK_LIBS_)
 # cmt_add_doc_subdirectory(doc)
-cmt_add_src_subdirectory(src)
-cmt_add_test_subdirectory(test)
+# cmt_add_src_subdirectory(src)
+# cmt_add_test_subdirectory(test)
