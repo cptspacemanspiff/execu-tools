@@ -16,6 +16,7 @@ cmt_project_setup()
 add_compile_definitions(ET_EVENT_TRACER_ENABLED=1)
 
 # args for executorch (not best place for this):
+set(EXECUTORCH_BUILD_EXTENSION_NAMED_DATA_MAP ON)
 set(EXECUTORCH_BUILD_EXTENSION_MODULE ON)
 set(EXECUTORCH_BUILD_EXTENSION_FLAT_TENSOR ON)
 set(EXECUTORCH_BUILD_EXTENSION_TENSOR ON)
@@ -33,24 +34,24 @@ message(STATUS "Fetching Executorch...")
 FetchContent_Declare(
   executorch
   GIT_PROGRESS TRUE
-  GIT_REPOSITORY https://github.com/cptspacemanspiff/executorch.git
-  GIT_TAG main
+  # GIT_REPOSITORY https://github.com/cptspacemanspiff/executorch.git
+  # GIT_TAG main
   # root of executorch must be named executorch see:
   # https://github.com/pytorch/executorch/issues/6475
-  SOURCE_DIR "${CMAKE_BINARY_DIR}/_deps/executorch"
+  SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../executorch"
   OVERRIDE_FIND_PACKAGE SYSTEM
 )
 FetchContent_MakeAvailable(executorch)
 
 message(STATUS "Fetching tokenizers-cpp...")
-# FetchContent_Declare(
-#   tokenizers-cpp
-#   GIT_PROGRESS TRUE
-#   # GIT_REPOSITORY https://github.com/mlc-ai/tokenizers-cpp.git GIT_TAG main
-#   GIT_REPOSITORY https://github.com/cptspacemanspiff/tokenizers-cpp.git
-#   GIT_TAG return-attn-mask-from-hftokenizer
-#   OVERRIDE_FIND_PACKAGE SYSTEM)
-# FetchContent_MakeAvailable(tokenizers-cpp)
+FetchContent_Declare(
+  tokenizers-cpp
+  GIT_PROGRESS TRUE
+  # GIT_REPOSITORY https://github.com/mlc-ai/tokenizers-cpp.git GIT_TAG main
+  GIT_REPOSITORY https://github.com/cptspacemanspiff/tokenizers-cpp.git
+  GIT_TAG return-attn-mask-from-hftokenizer
+  OVERRIDE_FIND_PACKAGE SYSTEM)
+FetchContent_MakeAvailable(tokenizers-cpp)
 
 message(STATUS "Fetching GoogleTest...")
 FetchContent_Declare(
@@ -63,13 +64,6 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(googletest)
 
 Set(FETCHCONTENT_QUIET FALSE)
-
-FetchContent_Declare(
-  someTarget
-  GIT_REPOSITORY "https://github.com/someone/someTarget.git"
-  GIT_TAG "tag"
-  GIT_PROGRESS TRUE
-)
 
 message(STATUS "All dependencies fetched.")
 

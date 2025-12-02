@@ -25,7 +25,7 @@ echo "Creating Python virtual environment..."
 if [ ! -d ".venv" ] || [ $UV_VENV_CLEAR -eq 1 ]; then
     uv venv
 fi
-source .executools_venv/bin/activate
+source .venv/bin/activate
 uv pip install -r requirements-dev.txt
 
 # Show which Python environment is being used
@@ -43,12 +43,12 @@ cmake .. # this downloads all c++ side deps
 # ninja
 
 # build + installexecutorch python package:
-cd ./_deps/executorch/
-# ./install_requirements.sh
+cd ../executorch/
+./install_requirements.sh
 ./install_executorch.sh
 
 # # install our updated versions of transformers:
-# cd ../../../../  # we are now at the root of the repo
+cd ../../../../  # we are now at the root of the repo
 # uv pip install -e transformers
 
 # # install executools python component:
@@ -56,7 +56,7 @@ cd ./_deps/executorch/
 
 # We have built and installed the executorch python package, now build the c++ side of the project
 cd cpp/build
-ninja
+make -j 8
 
 # everything is built.
 echo "Setup complete"

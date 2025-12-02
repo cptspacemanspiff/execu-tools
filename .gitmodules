@@ -1,3 +1,6 @@
 [submodule "transformers"]
 	path = transformers
 	url = git@github.com:cptspacemanspiff/transformers.git
+[submodule "executorch"]
+	path = executorch
+	url = https://github.com/pytorch/executorch.git
