@@ -79,5 +79,5 @@ endif()
 
 set(ET_LINK_LIBS_)
 # cmt_add_doc_subdirectory(doc)
-# cmt_add_src_subdirectory(src)
-# cmt_add_test_subdirectory(test)
+cmt_add_src_subdirectory(src)
+cmt_add_test_subdirectory(test)
