@@ -28,12 +28,12 @@ module = TestSlicingMutationIssue()
 dim_0_max = 10
 dim_1_max = 20
 # dims that work:
-# dim_0 = Dim("dim_0", min=1, max=4)
-# dim_1 = Dim("dim_1", min=1, max=4)
+dim_0 = Dim("dim_0", min=1, max=4)
+dim_1 = Dim("dim_1", min=1, max=4)
 
 # dims that don't work:
-d_0 = Dim("dim_0", min=1, max=dim_0_max)
-d_1 = Dim("dim_1", min=1, max=dim_1_max)
+# d_0 = Dim("dim_0", min=1, max=dim_0_max)
+# d_1 = Dim("dim_1", min=1, max=dim_1_max)
 
 exported_program = torch.export.export(
     module, (x_in_out_33,), dynamic_shapes={"x": {0: d_0, 1: d_1}}

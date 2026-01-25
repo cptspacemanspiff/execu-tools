@@ -45,7 +45,7 @@ venv: $(VENV_DIR)/bin/activate
 
 $(VENV_DIR)/bin/activate: requirements-dev.txt
 	@echo "Creating Python virtual environment..."
-	@uv venv $(VENV_DIR)
+	@uv venv $(VENV_DIR) --python 3.12
 	@. $(VENV_DIR)/bin/activate && uv pip install -r requirements-dev.txt
 	@touch $(VENV_DIR)/bin/activate
 

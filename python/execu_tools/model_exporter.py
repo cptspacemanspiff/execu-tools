@@ -21,7 +21,7 @@ import executorch
 from executorch.exir import to_edge, to_edge_transform_and_lower, EdgeProgramManager
 from executorch.exir import ExecutorchProgram, ExecutorchBackendConfig
 from executorch.exir.pass_base import PassResult
-from executorch.exir.passes.memory_planning_pass import MemoryPlanningPass, greedy
+from executorch.exir.passes.memory_planning_pass import MemoryPlanningPass
 from executorch.devtools.etrecord._etrecord import generate_etrecord
 from contextlib import contextmanager
 from torch._dynamo import assume_constant_result
